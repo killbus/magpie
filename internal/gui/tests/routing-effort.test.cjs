@@ -19,10 +19,11 @@ const cases = [
   { asked: "max", sent: "max", want: "max" },
   { asked: "xhigh", sent: "xhigh", want: "xhigh" },
   { asked: "", sent: "", want: null },
+  { asked: "high", sent: "high", want: "high", stripped: ["reasoning_effort"] },
 ];
 const routes = cases.map((c, i) => ({
   id: 100 - i, seq: 100 - i, time: at(i), agent: "pi", model: "codex/gpt-6.1-sol", provider: "openai", ...(c.asked ? { effort: c.asked } : {}),
-  order: [seat], tries: [{ id: seat.id, model: "gpt-6.1-sol", start: at(i), done: true, status: 200, ms: 900, ...(c.sent ? { effort: c.sent } : {}) }],
+  order: [seat], tries: [{ id: seat.id, model: "gpt-6.1-sol", start: at(i), done: true, status: 200, ms: 900, ...(c.sent ? { effort: c.sent } : {}), ...(c.stripped ? { stripped: c.stripped } : {}) }],
   done: true, status: 200, ms: 900, tokens: 1200,
 }));
 
@@ -83,6 +84,9 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       // the title still says how it came to be
       assert.match(rows[0].title, lang === "zh" ? /xhigh/ : /nearest to the xhigh Pi asked for/);
       assert.match(rows[1].title, lang === "zh" ? /max/ : /as Pi asked/);
+      const stripped = page.locator(".rt-req .to .ef").filter({ hasText: lang === "zh" ? "已剥离" : "stripped" });
+      assert.equal(await stripped.count(), 1);
+      assert.match(await stripped.getAttribute("title"), /reasoning_effort/);
       assert.deepEqual(errors, []);
     });
   }

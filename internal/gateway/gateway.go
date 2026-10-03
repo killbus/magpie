@@ -284,10 +284,11 @@ func ServedBy() Served {
 type Call struct {
 	// ID numbers the call in the Recent-calls ring, from 1, for the page
 	// to ask for its bodies by (the ring's summary leaves them out, #1521)
-	ID    uint64    `json:"id,omitempty"`
-	Time  time.Time `json:"time"`
-	Agent string    `json:"agent"`         // who called, from the client's User-Agent
-	Via   string    `json:"via,omitempty"` // the computer a remote magpie's request came from (AgentHeader)
+	ID       uint64    `json:"id,omitempty"`
+	Stripped []string  `json:"stripped,omitempty"` // the request's fields omitted on the way out, for the page
+	Time     time.Time `json:"time"`
+	Agent    string    `json:"agent"`         // who called, from the client's User-Agent
+	Via      string    `json:"via,omitempty"` // the computer a remote magpie's request came from (AgentHeader)
 	// Kind: what the agent made the call for, when it isn't its turn —
 	// a Codex subagent's (callKind) — "" for a turn
 	Kind string `json:"kind,omitempty"`
@@ -1088,7 +1089,8 @@ func (s *Server) countOn(w http.ResponseWriter, r *http.Request, p provider.Prov
 	// counted, and not at all where there are none
 	wires := sync.OnceValue(func() map[string]string { return settings.Load().ModelWires })
 	for i, c := range counts {
-		res, err := s.forward(r.Context(), c.p, provider.Anthropic, "/v1/messages/count_tokens", rewriteModel(body, provider.UpstreamNameIn(wires(), c.p.ID, model)), r.Header)
+		stripContext, _ := withStripModel(r.Context(), c.p.ID, model)
+		res, err := s.forward(stripContext, c.p, provider.Anthropic, "/v1/messages/count_tokens", rewriteModel(body, provider.UpstreamNameIn(wires(), c.p.ID, model)), r.Header)
 		if tooMany := (*errRPM)(nil); errors.As(err, &tooMany) {
 			break // its minute filled since: nobody rests, the estimate answers
 		}
@@ -2162,6 +2164,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 		// the models Copilot's Auto picked for it, where from, and which
 		// were refused (#256)
 		autoPicked := func() []provider.AutoPick { return nil }
+		call.Stripped = nil
 		if said, ok := verifyHeld(c.restKey()); ok && last {
 			// the account must be verified first (#152): the agent's
 			// reconnects are told so again, not sent on to a vendor that
@@ -2314,7 +2317,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 		if wentAt = sent; at.set {
 			wentAt = at.effort
 		}
-		try := Try{ID: c.rest, Model: c.model, Effort: wentAt, Picked: picked, Fixed: fixed, Fast: fast, Start: began, Done: true, Status: call.Status, Millis: time.Since(began).Milliseconds(), Error: call.Error, Queued: queued,
+		try := Try{ID: c.rest, Model: c.model, Effort: wentAt, Picked: picked, Fixed: fixed, Fast: fast, Stripped: call.Stripped, Start: began, Done: true, Status: call.Status, Millis: time.Since(began).Milliseconds(), Error: call.Error, Queued: queued,
 			Served: call.Usage.Served, Upstream: call.Usage.Upstream, Auto: autoPicked()}
 		if resetFirst != nil {
 			// the reset spent for it before it was asked
@@ -2948,6 +2951,9 @@ func sinceStart(before, d time.Duration) int64 {
 // attempt sends a request to one provider. call.To stays empty when the
 // provider has no endpoint to send it to.
 func (s *Server) attempt(w http.ResponseWriter, r *http.Request, from provider.Protocol, p provider.Provider, model string, body []byte, call *Call) (int, string) {
+	stripContext, stripping := withStripModel(r.Context(), p.ID, model)
+	r = r.WithContext(stripContext)
+	defer func() { call.Stripped = stripping.stripped() }()
 	// Normalize for the actual destination, separately on each fallback.
 	// Native ChatGPT accounts accept standalone tool outputs themselves.
 	if from == provider.Responses && (p.Account == nil || p.Account.Agent != "codex") {
@@ -3248,6 +3254,7 @@ func (s *Server) forwardOnce(ctx context.Context, p provider.Provider, to provid
 		// before it is signed
 		body = p.WithExtraBody(body, cmp.Or(sessionOf(in), conversationID(in, body)))
 	}
+	body = stripOutgoing(ctx, body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.Base(to)+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -3345,6 +3352,20 @@ func (s *Server) forwardOnce(ctx context.Context, p provider.Provider, to provid
 	if to == provider.Anthropic {
 		s.fitUserBetas(p, req.Header)
 	}
+	if stripping, ok := ctx.Value(stripKey{}).(*requestStrip); ok && len(stripping.paths) > 0 && req.Body != nil {
+		prepared, readErr := io.ReadAll(req.Body)
+		req.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if !bytes.Equal(prepared, body) {
+			prepared = stripOutgoing(ctx, prepared)
+			body = prepared
+		}
+		req.Body = io.NopCloser(bytes.NewReader(prepared))
+		req.ContentLength = int64(len(prepared))
+		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(prepared)), nil }
+	}
 	sent := len(body)
 	if p.Account != nil && p.Account.Agent == "codex" {
 		// a turn goes zstd-compressed, as Codex's own client sends it;
@@ -3437,6 +3458,8 @@ func codexClientHeader(k string) bool {
 func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.Provider, proto provider.Protocol, model string, body []byte, u *Usage) (status int, msg string, done bool) {
 	upstream := provider.UpstreamNameIn(wiresOf(r.Context()), p.ID, model)
 	body = rewriteModel(body, upstream)
+	stripContext, _ := withStripModel(r.Context(), p.ID, model)
+	r = r.WithContext(stripContext)
 	searchFn := false    // Codex's tool search sent as a function
 	geminiWhole := false // a Gemini client's generateContent
 	// a model that wants its reasoning text back (#388, #1104)
@@ -4094,6 +4117,7 @@ func (s *Server) forwardTranslated(ctx context.Context, p provider.Provider, to 
 		r := *req
 		r.Effort, req = "none", &r
 	}
+	ctx, _ = withStripModel(ctx, p.ID, model)
 	if req.Effort != "" {
 		if e := fitFor(p, model, req.Effort); e != req.Effort {
 			r := *req
