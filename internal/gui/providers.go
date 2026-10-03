@@ -25,6 +25,8 @@ import (
 // with one key, the gateway that fronts them, and who is routed where.
 
 type modelJSON struct {
+	Strip    []string `json:"strip,omitempty"`
+	StripAll []string `json:"stripAll,omitempty"`
 	ID       string   `json:"id"`
 	Name     string   `json:"name"`              // the user's name for it, if they gave one
 	Default  string   `json:"default,omitempty"` // its own name, when the user gave it another
@@ -538,6 +540,8 @@ func providerInfo(p provider.Provider, agents []agentUse) providerJSON {
 			}
 		}
 		j.Same = sames[p.ID+"/"+m.ID]
+		j.Strip = held.ModelStrip[p.ID+"/"+m.ID]
+		j.StripAll = held.ModelStrip[p.ID+"/*"]
 		j.Merge = provider.MergeName(m.ID)
 		if mp, ok := held.ModelPrices[p.ID+"/"+m.ID]; ok {
 			if pr, bad := mp.Price(); bad == "" {

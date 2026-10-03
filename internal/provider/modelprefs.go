@@ -433,6 +433,7 @@ type ModelPref struct {
 	OwnImages bool           `json:"ownImages,omitempty"`
 	API       *string        `json:"api,omitempty"`
 	Same      *string        `json:"same,omitempty"`
+	Strip     *[]string      `json:"strip,omitempty"`
 	Price     *catalog.Price `json:"price,omitempty"`
 	OwnPrice  bool           `json:"ownPrice,omitempty"`
 }
@@ -443,6 +444,13 @@ type ModelPref struct {
 // once, after them all, rather than once a change. It stops at the first
 // that fails, telling the agents of those made before it.
 func SetModelPrefs(pid string, prefs map[string]ModelPref) error {
+	for _, pref := range prefs {
+		if pref.Strip != nil {
+			if _, err := CleanStripPaths(*pref.Strip); err != nil {
+				return err
+			}
+		}
+	}
 	changed := false
 	set := func(c bool, err error) error {
 		changed = changed || c
@@ -451,6 +459,11 @@ func SetModelPrefs(pid string, prefs map[string]ModelPref) error {
 	err := func() error {
 		for _, model := range slices.Sorted(maps.Keys(prefs)) {
 			m, ref := prefs[model], pid+"/"+model
+			if m.Strip != nil {
+				if err := SetModelStrip(ref, *m.Strip); err != nil {
+					return err
+				}
+			}
 			if m.Name != nil {
 				if err := set(setModelName(ref, *m.Name)); err != nil {
 					return err

@@ -234,10 +234,11 @@ type Weighed struct {
 
 // Try is one candidate trying the request.
 type Try struct {
-	ID     string `json:"id"`
-	Model  string `json:"model,omitempty"`  // the model it was asked for: a group's members may share a provider's keys
-	Effort string `json:"effort,omitempty"` // the reasoning it was sent at, fitted to its model's levels; "" for none
-	Picked bool   `json:"picked,omitempty"` // Effort is the turn's pick, in place of the agent's
+	Stripped []string `json:"stripped,omitempty"`
+	ID       string   `json:"id"`
+	Model    string   `json:"model,omitempty"`  // the model it was asked for: a group's members may share a provider's keys
+	Effort   string   `json:"effort,omitempty"` // the reasoning it was sent at, fitted to its model's levels; "" for none
+	Picked   bool     `json:"picked,omitempty"` // Effort is the turn's pick, in place of the agent's
 	// Fixed: the effort the group's member it went to is fixed at, which
 	// Effort is (fitted to the model's levels) whatever was asked
 	Fixed  string    `json:"fixed,omitempty"`

@@ -432,7 +432,8 @@ type Settings struct {
 	// that key under that one name. Everything else — the catalog agents see,
 	// the routing groups, the usage records and what a call is priced at —
 	// keeps the name magpie knows the model by.
-	ModelWires map[string]string `json:"modelWires,omitempty"`
+	ModelWires map[string]string   `json:"modelWires,omitempty"`
+	ModelStrip map[string][]string `json:"modelStrip,omitempty"`
 	// ModelAPIs is the one API a model is asked on at its provider, by
 	// "<provider id>/<model id>": chat, responses or anthropic, for a relay
 	// whose one key serves some models on one and others on another

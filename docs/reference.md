@@ -1202,6 +1202,51 @@ The *Gateway* tab in the app has this as copy buttons and ready-made
 snippets (shell, curl, Python, Node) for each API, the list of model ids,
 and the recent calls; `MAGPIE_DEBUG=1` logs every call to the terminal.
 
+### Local request-field stripping
+
+Use `magpie model strip` to omit JSON fields from outgoing model requests:
+
+```sh
+magpie model strip relay-a/glm-5.3 reasoning_effort,reasoning.effort,output_config.effort
+magpie model strip 'relay-a/*' metadata
+magpie model strip relay-a/glm-5.3
+magpie model strips
+magpie model strip relay-a/glm-5.3 --reset
+```
+
+The model editor's **Names & levels → Strip params** accepts the same
+comma-separated paths. Changes take effect on Save; Cancel discards them.
+Restore default removes the model's own paths, not its provider-wide paths.
+Settings stores these lists in `modelStrip`, keyed by `provider/model` or
+`provider/*`. The two lists are combined and deduplicated: a model's list
+adds to the provider's rather than replacing it. Reset removes only the
+named entry. Nothing is stripped by default.
+
+Paths address the outgoing JSON: `reasoning_effort` for Chat,
+`reasoning.effort` for Responses, `output_config.effort` for Anthropic,
+and `messages[].reasoning_content` for a field in every message. Nested
+arrays are supported. Field names may contain letters, digits, underscores
+and hyphens, starting with a letter or underscore. Literal dots, array
+indexes, wildcards within paths and terminal `[]` are not supported. The
+root `model` field cannot be stripped because it identifies the request.
+Missing fields are left alone; parents emptied by a deletion are removed.
+Array elements retain their positions, even if an element becomes `{}`.
+
+Stripping happens after routing overrides, protocol conversion and request
+preparation, on retries as well as the first request. Rules use the model's
+magpie id, even when its outgoing name is overridden. This covers standard
+gateway API routes, including calls handed to plugin fetch. A plugin can
+subsequently build a different request or reintroduce fields; its own final
+wire format needs separate verification. Dedicated built-in backends that
+bypass the standard send path reject strip configuration; native agent
+traffic that bypasses these gateway routes is not covered.
+
+Deleting effort leaves reasoning strength to the upstream's default; it is
+not the same as disabling reasoning. Removing other required fields can
+make a request invalid. Recent calls and routing attempts expose `stripped`
+paths while retaining the original effort information. The Gateway page's
+Request Body is the incoming request, not the final upstream body.
+
 **Claude Code** gets `ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN` and the
 model variables in the `env` block of `settings.json`; picking a native
 model (`opus`, `sonnet`…) removes them and restores whatever was there.

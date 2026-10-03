@@ -1995,7 +1995,7 @@
       // all the row says, and its titles
       const title = reqTitle(r, how, tr);
       const sig = JSON.stringify([lang, said, how, title, r.time, r.agent, agentName(r.agent), ag?.icon, r.model, r.provider, r.kind, r.effort,
-        tr?.effort, tr?.picked, tr?.fixed, tr?.fast, tr?.swapped && tr.done && tryOk(tr) ? [tr.model, tr.served] : 0, tr?.routed && tr.done && tryOk(tr) ? tr.served : 0, tr?.done && tryOk(tr) ? tr.upstream : 0, meta, metrics, routeCost(r)]);
+        tr?.effort, tr?.picked, tr?.fixed, tr?.fast, tr?.stripped, tr?.swapped && tr.done && tryOk(tr) ? [tr.model, tr.served] : 0, tr?.routed && tr.done && tryOk(tr) ? tr.served : 0, tr?.done && tryOk(tr) ? tr.upstream : 0, meta, metrics, routeCost(r)]);
       ids.add(r.id);
       let x = reqRows.get(r.id);
       if (!x || x.sig !== sig) {
@@ -2047,6 +2047,11 @@
       ef.append(el("span", "now", (was ? " → " : "") + tr.effort));
       ef.title = effortNote(r, tr);
       to.append(ef);
+    }
+    if (tr?.stripped?.length) {
+      const stripped = el("span", "ef", t("stripped"));
+      stripped.title = t("Stripped before sending: {paths}", { paths: tr.stripped.join(", ") });
+      to.append(stripped);
     }
     if (tr?.fast) {
       // sent in its vendor's fast mode, as the group's member is
