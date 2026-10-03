@@ -24,6 +24,8 @@ import (
 // with one key, the gateway that fronts them, and who is routed where.
 
 type modelJSON struct {
+	Strip    []string `json:"strip,omitempty"`
+	StripAll []string `json:"stripAll,omitempty"`
 	ID       string   `json:"id"`
 	Name     string   `json:"name"`              // the user's name for it, if they gave one
 	Default  string   `json:"default,omitempty"` // its own name, when the user gave it another
@@ -423,7 +425,8 @@ func providerInfo(p provider.Provider, agents []agentUse) providerJSON {
 	}
 	seen := map[string]bool{}
 	names, kept := p.ModelNames(), p.ModelEfforts()
-	sames := settings.Load().ModelSameAs
+	modelSettings := settings.Load()
+	sames := modelSettings.ModelSameAs
 	// a list fetched before magpie kept each model's most: the one Codex
 	// CLI keeps says it
 	var most []catalog.Model
@@ -455,6 +458,8 @@ func providerInfo(p provider.Provider, agents []agentUse) providerJSON {
 			}
 		}
 		j.Same = sames[p.ID+"/"+m.ID]
+		j.Strip = modelSettings.ModelStrip[p.ID+"/"+m.ID]
+		j.StripAll = modelSettings.ModelStrip[p.ID+"/*"]
 		j.Merge = provider.MergeName(m.ID)
 		if len(j.Efforts) == 0 {
 			j.Efforts, j.Given = provider.Levels, true

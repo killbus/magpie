@@ -48,6 +48,10 @@ const modelUsage = `usage:
                                                  id of its own for a provider that has since been deleted,
                                                  and says when there was no name of its own to take away
   magpie model wires                             the names your vendors are asked for models by
+  magpie model strip <provider/model> [paths]    show or set comma-separated outgoing JSON paths to omit
+  magpie model strip '<provider>/*' <paths>      omit these paths for every model of this provider
+  magpie model strip <provider/model> --reset    remove only this entry; provider-wide paths still apply
+  magpie model strips                            list saved strip rules
   magpie model names                             the models you named or narrowed
   magpie model suffix [on|own|off]               whether the agents' lists name each model with its provider
                                                  (or "routing group") after it: on, as by default, "Sol · OpenAI";
@@ -58,6 +62,10 @@ const modelUsage = `usage:
   Each is looked for in this order: this model, then <provider id>/*, then the provider's own
   list, then models.dev. --reset removes only the first, and says so when a <provider id>/* value
   still applies. A price comes from '*/<model>' after <provider id>/* and before any list price.
+  Strip paths instead combine provider/* and model entries. Dot paths and arrays are supported:
+  reasoning_effort,reasoning.effort,output_config.effort,messages[].reasoning_content.
+  Omitted effort uses the upstream default; it does not disable reasoning. Required fields
+  should not be stripped; the root model field is protected.
 
   Only what agents are shown changes with a name or levels: they still pick the model, and
   requests still reach it, as <provider/model>. The same model from another provider keeps
@@ -88,6 +96,13 @@ func modelCmd(args []string) error {
 		return modelPrices()
 	case "wires":
 		return modelWires()
+	case "strip":
+		return modelStrip(args[1:])
+	case "strips":
+		if len(args) != 1 {
+			return fmt.Errorf("usage: magpie model strips")
+		}
+		return modelStrips()
 	case "suffix", "suffixes":
 		return modelSuffix(args[1:])
 	case "context", "ctx":

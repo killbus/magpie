@@ -244,9 +244,10 @@ func ServedBy() Served {
 
 // Call is one request the gateway handled, for the status views.
 type Call struct {
-	Time  time.Time `json:"time"`
-	Agent string    `json:"agent"`         // who called, from the client's User-Agent
-	Via   string    `json:"via,omitempty"` // the computer a remote magpie's request came from (AgentHeader)
+	Stripped []string  `json:"stripped,omitempty"`
+	Time     time.Time `json:"time"`
+	Agent    string    `json:"agent"`         // who called, from the client's User-Agent
+	Via      string    `json:"via,omitempty"` // the computer a remote magpie's request came from (AgentHeader)
 	// Kind: what the agent made the call for, when it isn't its turn —
 	// a Codex subagent's (callKind) — "" for a turn
 	Kind string `json:"kind,omitempty"`
@@ -786,7 +787,8 @@ func (s *Server) countOn(w http.ResponseWriter, r *http.Request, p provider.Prov
 	// counted, and not at all where there are none
 	wires := sync.OnceValue(func() map[string]string { return settings.Load().ModelWires })
 	for i, c := range counts {
-		res, err := s.forward(r.Context(), c.p, provider.Anthropic, "/v1/messages/count_tokens", rewriteModel(body, provider.UpstreamNameIn(wires(), c.p.ID, model)), r.Header)
+		stripContext, _ := withStripModel(r.Context(), c.p.ID, model)
+		res, err := s.forward(stripContext, c.p, provider.Anthropic, "/v1/messages/count_tokens", rewriteModel(body, provider.UpstreamNameIn(wires(), c.p.ID, model)), r.Header)
 		if err != nil {
 			if r.Context().Err() == nil {
 				s.restAfter(c, http.StatusBadGateway, nil, []byte(err.Error()))
@@ -1473,7 +1475,8 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 		s.trace.update(tr, func(t *Route) {
 			t.Tries = append(t.Tries, Try{ID: c.rest, Model: c.model, Effort: sent, Picked: picked, Fixed: fixed, Fast: fast, Start: began})
 		})
-		held := false    // answered as its vendor did a moment ago, without asking
+		held := false // answered as its vendor did a moment ago, without asking
+		call.Stripped = nil
 		var queued int64 // ms it waited for a slot of its key's or account's
 		if said, ok := verifyHeld(c.restKey()); ok && last {
 			// the account must be verified first (#152): the agent's
@@ -1526,7 +1529,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			// the vendor's safety filter, with nothing said (#248)
 			call.Error = refusedError(c.p, c.model, hw.failMsg)
 		}
-		try := Try{ID: c.rest, Model: c.model, Effort: sent, Picked: picked, Fixed: fixed, Fast: fast, Start: began, Done: true, Status: call.Status, Millis: time.Since(began).Milliseconds(), Error: call.Error, Queued: queued,
+		try := Try{ID: c.rest, Model: c.model, Effort: sent, Picked: picked, Fixed: fixed, Fast: fast, Stripped: call.Stripped, Start: began, Done: true, Status: call.Status, Millis: time.Since(began).Milliseconds(), Error: call.Error, Queued: queued,
 			Served: call.Usage.Served}
 		asName := provider.SentNameOnIn(wiresOf(r.Context()), c.p.ID, accountAgent(c.p), c.model, sent)
 		try.Swapped, try.Routed = swapped(asName, call.Usage.Served), usage.GroupRouted(asName, call.Usage.Served)
@@ -1896,6 +1899,9 @@ func sinceStart(before, d time.Duration) int64 {
 // attempt sends a request to one provider. call.To stays empty when the
 // provider has no endpoint to send it to.
 func (s *Server) attempt(w http.ResponseWriter, r *http.Request, from provider.Protocol, p provider.Provider, model string, body []byte, call *Call) (int, string) {
+	stripContext, stripping := withStripModel(r.Context(), p.ID, model)
+	r = r.WithContext(stripContext)
+	defer func() { call.Stripped = stripping.stripped() }()
 	// Normalize for the actual destination, separately on each fallback.
 	// Native ChatGPT accounts accept standalone tool outputs themselves.
 	if from == provider.Responses && (p.Account == nil || p.Account.Agent != "codex") {
@@ -2056,6 +2062,7 @@ func (s *Server) forwardOnce(ctx context.Context, p provider.Provider, to provid
 		// built, with the model named as the vendor names it
 		body = adaptiveThinking(body)
 	}
+	body = stripOutgoing(ctx, body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.Base(to)+path, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -2135,6 +2142,19 @@ func (s *Server) forwardOnce(ctx context.Context, p provider.Provider, to provid
 	if err := p.Sign(ctx, req, to, body); err != nil {
 		return nil, err
 	}
+	if stripping, ok := ctx.Value(stripKey{}).(*requestStrip); ok && len(stripping.paths) > 0 && req.Body != nil {
+		prepared, readErr := io.ReadAll(req.Body)
+		req.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if !bytes.Equal(prepared, body) {
+			prepared = stripOutgoing(ctx, prepared)
+		}
+		req.Body = io.NopCloser(bytes.NewReader(prepared))
+		req.ContentLength = int64(len(prepared))
+		req.GetBody = func() (io.ReadCloser, error) { return io.NopCloser(bytes.NewReader(prepared)), nil }
+	}
 	return p.Do(s.client, req)
 }
 
@@ -2191,6 +2211,8 @@ func codexClientHeader(k string) bool {
 // written, when the provider serves the model on another of its endpoints
 // but not this one.
 func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, p provider.Provider, proto provider.Protocol, model string, body []byte, u *Usage) (status int, msg string, done bool) {
+	stripContext, _ := withStripModel(r.Context(), p.ID, model)
+	r = r.WithContext(stripContext)
 	body = rewriteModel(body, provider.UpstreamNameIn(wiresOf(r.Context()), p.ID, model))
 	searchFn := false // Codex's tool search sent as a function
 	switch proto {
@@ -2603,6 +2625,7 @@ func (s *Server) usable(p provider.Provider, model string) []provider.Protocol {
 // served on this one, the request is built again for the next endpoint it
 // speaks, and the model is remembered there.
 func (s *Server) forwardTranslated(ctx context.Context, p provider.Provider, to provider.Protocol, req *Request, model string, in http.Header) (*http.Response, provider.Protocol, error) {
+	ctx, _ = withStripModel(ctx, p.ID, model)
 	if req.Effort != "" {
 		if e := fitFor(p, model, req.Effort); e != req.Effort {
 			r := *req

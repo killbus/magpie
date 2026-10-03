@@ -118,6 +118,7 @@ func TestSettingsSaveKeepsWhatItDoesNotSend(t *testing.T) {
 		ModelOutputs:        map[string]int{"p/m": 131072},
 		ModelPrices:         map[string]settings.ModelPrice{"p/m": {Input: &one, Output: &two}},
 		ModelWires:          map[string]string{"p/m": "vendor-c/m"},
+		ModelStrip:          map[string][]string{"p/*": {"metadata"}, "p/m": {"reasoning_effort"}},
 		ModelAPIs:           map[string]string{"p/m": "anthropic"},
 		ModelSameAs:         map[string]string{"p/m": "deepseek-v4.1-flash"},
 		RedactRules:         []redact.Rule{{Kind: "prefix", Prefix: "oc_sk_"}},

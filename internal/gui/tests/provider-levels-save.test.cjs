@@ -15,7 +15,7 @@ const levels = ["none", "low", "medium", "high"];
 function serve(lang, posts) {
   const state = { agents: [], profiles: [], settings: { lang, theme: "light" } };
   const models = Array.from({ length: 3 }, (_, i) => ({ id: `model-${i + 1}`, name: `Model ${i + 1}`, on: true, efforts: levels, images: false }));
-  models[2] = { ...models[2], kept: ["low", "high"] };
+  models[2] = { ...models[2], kept: ["low", "high"], strip: ["output_config.effort"], stripAll: ["metadata"] };
   const provider = { id: "relay", name: "Relay", icon: "generic", chat: "https://relay.example/v1", responses: "", anthropic: "", models, agents: [], key: { set: true, masked: "sk-…1234" }, ready: true };
   const providers = { providers: [provider], presets: [], excluded: [], gateway: { running: true, window: true } };
   return async (route) => {
@@ -57,11 +57,18 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       const row = (id) => page.locator(".mname", { has: page.locator("code", { hasText: id }) });
       await open();
       const list = await page.locator(".mnames:not([hidden])").elementHandle();
+      if (process.env.ARTIFACT_DIR) {
+        await fs.mkdir(process.env.ARTIFACT_DIR, { recursive: true });
+        await page.screenshot({ path: path.join(process.env.ARTIFACT_DIR, `${engine}-${lang}-strip-editor.png`) });
+      }
       const y = await page.evaluate(() => scrollY);
       // ticks: nothing sent, nothing redrawn, the boxes as ticked
       await row("model-1").getByRole("checkbox", { name: L.low, exact: true }).uncheck();
       await row("model-1").getByRole("checkbox", { name: L.high, exact: true }).uncheck();
       await row("model-1").getByRole("checkbox", { name: L.images, exact: true }).check();
+      const stripLabel = zh ? "剥离参数" : "Strip params";
+      await row("model-1").getByLabel(stripLabel, { exact: true }).fill("reasoning_effort, reasoning.effort, output_config.effort");
+      await row("model-1").getByLabel(stripLabel, { exact: true }).press("Enter");
       await row("model-2").locator(".mwho input").first().fill("Two");
       await row("model-2").locator(".mwho input").first().press("Enter");
       await row("model-3").getByRole("button", { name: L.reset }).click();
@@ -73,21 +80,29 @@ for (const engine of (process.env.BROWSER ? [process.env.BROWSER] : ["chromium",
       assert.equal(await row("model-1").getByRole("checkbox", { name: L.high, exact: true }).isChecked(), false);
       for (const id of ["model-1", "model-2", "model-3"]) assert(await row(id).getByText(L.unsaved, { exact: true }).isVisible(), id + " says it is unsaved");
       assert.equal(await row("model-3").getByRole("checkbox", { name: zh ? "中" : "medium", exact: true }).isChecked(), true, "Restore default ticks every level");
+      assert.equal(await row("model-3").getByLabel(stripLabel, { exact: true }).inputValue(), "");
+      assert(await row("model-3").getByText(zh ? "同时应用 Provider 级剥离规则：metadata" : "Provider-wide strip paths also apply: metadata", { exact: true }).isVisible());
       // Cancel drops them; opened again, the editor is as saved
       await page.getByRole("button", { name: L.cancel, exact: true }).click();
       await open();
       assert.equal(await row("model-1").getByRole("checkbox", { name: L.low, exact: true }).isChecked(), true);
       assert.equal(await row("model-1").getByText(L.unsaved, { exact: true }).isVisible(), false);
+      assert.equal(await row("model-1").getByLabel(stripLabel, { exact: true }).inputValue(), "");
+      assert.equal(await row("model-3").getByLabel(stripLabel, { exact: true }).inputValue(), "output_config.effort");
       assert.deepEqual(posts, []);
       // picked again and saved: one Save carries them all
       await row("model-1").getByRole("checkbox", { name: L.low, exact: true }).uncheck();
       await row("model-1").getByRole("checkbox", { name: L.low, exact: true }).check(); // back as it was: nothing for it
       await row("model-1").getByRole("checkbox", { name: L.high, exact: true }).uncheck();
       await row("model-3").getByRole("checkbox", { name: zh ? "中" : "medium", exact: true }).check();
+      await row("model-3").getByLabel(stripLabel, { exact: true }).fill("");
+      await row("model-3").getByLabel(stripLabel, { exact: true }).press("Enter");
+      await row("model-1").getByLabel(stripLabel, { exact: true }).fill("reasoning_effort, reasoning.effort");
+      await row("model-1").getByLabel(stripLabel, { exact: true }).press("Enter");
       await page.getByRole("button", { name: L.save, exact: true }).click();
       await page.waitForFunction(() => !document.querySelector(".mnames"));
       assert.deepEqual(posts.map((p) => p.path), ["/api/provider/save"]);
-      assert.deepEqual(posts[0].body.modelPrefs, { "model-1": { efforts: ["none", "low", "medium"] }, "model-3": { efforts: ["low", "medium", "high"] } });
+      assert.deepEqual(posts[0].body.modelPrefs, { "model-1": { efforts: ["none", "low", "medium"], strip: ["reasoning_effort", "reasoning.effort"] }, "model-3": { efforts: ["low", "medium", "high"], strip: [] } });
       assert.deepEqual(errors, []);
     });
   }
