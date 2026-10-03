@@ -27,13 +27,15 @@ import (
 // with one key, the gateway that fronts them, and who is routed where.
 
 type modelJSON struct {
-	ID      string   `json:"id"`
-	Name    string   `json:"name"`              // the user's name for it, if they gave one
-	Default string   `json:"default,omitempty"` // its own name, when the user gave it another
-	Plain   string   `json:"plain,omitempty"`   // a remote magpie's model's name there alone, when Name has its provider there after it (catalog.Model's)
-	Kept    []string `json:"kept,omitempty"`    // the reasoning levels the user keeps of Efforts, when not all
-	Efforts []string `json:"efforts,omitempty"`
-	Given   bool     `json:"given,omitempty"` // its levels aren't known: Efforts are those it can be given, Kept those it was
+	Strip    []string `json:"strip,omitempty"`
+	StripAll []string `json:"stripAll,omitempty"`
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`              // the user's name for it, if they gave one
+	Default  string   `json:"default,omitempty"` // its own name, when the user gave it another
+	Plain    string   `json:"plain,omitempty"`   // a remote magpie's model's name there alone, when Name has its provider there after it (catalog.Model's)
+	Kept     []string `json:"kept,omitempty"`    // the reasoning levels the user keeps of Efforts, when not all
+	Efforts  []string `json:"efforts,omitempty"`
+	Given    bool     `json:"given,omitempty"` // its levels aren't known: Efforts are those it can be given, Kept those it was
 	// Reasonless: the user said it takes no reasoning ask
 	// (provider.SetModelReasonless): none of Efforts is kept, and none is sent
 	Reasonless bool     `json:"reasonless,omitempty"`
@@ -749,6 +751,8 @@ func providerInfoWith(p provider.Provider, agents []agentUse, desktop map[string
 		j.NoAPI = p.NoAPIFor(m.ID)
 		j.Same = sames[p.ID+"/"+m.ID]
 		j.Kind = p.ModelKind(m.ID)
+		j.Strip = held.ModelStrip[p.ID+"/"+m.ID]
+		j.StripAll = held.ModelStrip[p.ID+"/*"]
 		j.Merge = provider.MergeName(m.ID)
 		j.Desktop = desktop[p.ID+"/"+m.ID]
 		if mp, ok := held.ModelPrices[p.ID+"/"+m.ID]; ok {

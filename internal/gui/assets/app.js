@@ -7007,7 +7007,6 @@ function archivePanel(name, id, redraw) {
   return box;
 }
 
-// An agent's model field, and whether any of its options come from provider p.
 function modelField(a) {
   const agent = state.agents.find((x) => x.id === a.id);
   return agent?.fields.find((f) => f.key === "model") || null;
@@ -11119,6 +11118,21 @@ function renderModels(p) {
         drawReset();
       };
       row.append(priceBox);
+      const stripNow = () => prefs[id]?.strip ?? m.strip ?? [];
+      const stripBox = el("label", "msame");
+      const stripInput = input(stripNow().join(", "), "reasoning_effort, reasoning.effort, output_config.effort");
+      stripInput.spellcheck = false;
+      stripInput.title = t("Outgoing JSON paths to omit, separated by commas. Supports objects and arrays: reasoning.effort, messages[].reasoning_content. Omitting effort uses the upstream default, not reasoning off.");
+      stripInput.onchange = () => {
+        const paths = [...new Set(stripInput.value.split(",").map((path) => path.trim()).filter(Boolean))];
+        if (JSON.stringify(paths) === JSON.stringify(m.strip || [])) delete pref().strip;
+        else pref().strip = paths;
+        drawReset();
+      };
+      stripInput.onkeydown = (event) => { event.stopPropagation(); if (event.key === "Enter") stripInput.blur(); else if (event.key === "Escape") { stripInput.value = stripNow().join(", "); stripInput.blur(); } };
+      stripBox.append(el("span", "", t("Strip params")), stripInput);
+      row.append(stripBox);
+      if (m.stripAll?.length) row.append(el("span", "hint", t("Provider-wide strip paths also apply: {paths}", { paths: m.stripAll.join(", ") })));
       const [img, imgCb] = tick(t("Accepts images"), imagesNow());
       img.title = t("Whether agents are told {id} can see images", { id: m.id });
       imgCb.onchange = () => {
@@ -11206,6 +11220,8 @@ function renderModels(p) {
         same.value = sameNow();
         if (m.price) prefs[id].ownPrice = true;
         showPrice();
+        if (m.strip?.length) prefs[id].strip = [];
+        stripInput.value = stripNow().join(", ");
         if (apiSeg) { for (const b of apiSeg.querySelectorAll(".opt")) b.classList.toggle("on", b.dataset.api === apiNow()); slide(apiSeg, "api"); }
         drawReset();
       };
@@ -11215,7 +11231,7 @@ function renderModels(p) {
         unsaved.hidden = !prefs[id] && !draft.priceTyped?.[id];
         // staged back to its own already, there is nothing to restore
         const images = prefs[id]?.ownImages ? false : prefs[id]?.images !== undefined ? prefs[id].images !== !!m.ownImages : !!m.imageSet;
-        const custom = nameNow() !== "" || noneNow() || (prefs[id]?.efforts ? prefs[id].efforts.length > 0 : !!m.kept?.length) || images || apiNow() !== "" || sameNow() !== "" || priceNow() !== null || !!draft.priceTyped?.[id];
+        const custom = nameNow() !== "" || noneNow() || (prefs[id]?.efforts ? prefs[id].efforts.length > 0 : !!m.kept?.length) || images || apiNow() !== "" || sameNow() !== "" || priceNow() !== null || !!draft.priceTyped?.[id] || stripNow().length > 0;
         reset.hidden = !custom;
       };
       row.append(unsaved, reset);

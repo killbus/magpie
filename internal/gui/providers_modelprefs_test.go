@@ -46,6 +46,21 @@ func TestProviderSaveModelPrefs(t *testing.T) {
 		t.Fatalf("same as %q", got)
 	}
 	// one it refuses fails the Save, saying why
+	if w := post(`{"id":"relay","from":"relay","name":"Relay","chat":"http://127.0.0.1:1/v1","models":["sol"],"modelPrefs":{"sol":{"strip":["reasoning_effort","reasoning.effort","output_config.effort"]}}}`); w.Code != 200 {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	if got := settings.Load().ModelStrip["relay/sol"]; !slices.Equal(got, []string{"reasoning_effort", "reasoning.effort", "output_config.effort"}) {
+		t.Fatal(got)
+	}
+	if w := post(`{"id":"relay","from":"relay","name":"Relay","chat":"http://127.0.0.1:1/v1","models":["sol"],"modelPrefs":{"sol":{"strip":["bad..path"]}}}`); w.Code == 200 {
+		t.Fatal("invalid strip path accepted")
+	}
+	if w := post(`{"id":"relay","from":"relay","name":"Relay","chat":"http://127.0.0.1:1/v1","models":["sol"],"modelPrefs":{"sol":{"strip":[]}}}`); w.Code != 200 {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	if len(settings.Load().ModelStrip) != 0 {
+		t.Fatal("strip reset was not saved")
+	}
 	if w := post(`{"id":"relay","from":"relay","name":"Relay","chat":"http://127.0.0.1:1/v1","models":["sol"],"modelPrefs":{"sol":{"efforts":["loud"]}}}`); w.Code == 200 || !strings.Contains(w.Body.String(), "loud") {
 		t.Fatalf("%d %s", w.Code, w.Body)
 	}

@@ -177,6 +177,7 @@ func TestSettingsSaveKeepsWhatItDoesNotSend(t *testing.T) {
 		GatewayMode:          "off",
 		QuotaReads:           "asked",
 		NoAccountDiscovery:   true,
+		ModelStrip:           map[string][]string{"p/*": {"metadata"}, "p/m": {"reasoning_effort"}},
 	}
 	was.DesktopSubagentEffort = "high"
 	was.CodexAsyncCompact, was.CodexAsyncCompactPercent = true, 70

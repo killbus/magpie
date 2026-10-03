@@ -605,6 +605,10 @@ function renderActivity() {
     };
     item.append(r);
     if (open) {
+      if (c.stripped?.length) {
+        const hint = el("p", "hint", t("Stripped before sending: {paths}", { paths: c.stripped.join(", ") }));
+        item.append(hint);
+      }
       if (!callBodies.has(id)) loadCallBodies(c, id);
       const body = callBodies.get(id);
       const details = el("div", body.busy || body.error ? "" : "call-details");
