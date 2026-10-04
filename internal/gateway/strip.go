@@ -27,7 +27,7 @@ func withStripModel(ctx context.Context, pid, model string) (context.Context, *r
 	if current, ok := ctx.Value(stripKey{}).(*requestStrip); ok && current.provider == pid && current.model == model {
 		return ctx, current
 	}
-	current := &requestStrip{provider: pid, model: model, paths: provider.StripPathsIn(settings.Load().ModelStrip, pid, model)}
+	current := &requestStrip{provider: pid, model: model, paths: provider.StripPathsIn(settings.Load(), pid, model)}
 	return context.WithValue(ctx, stripKey{}, current), current
 }
 

@@ -592,7 +592,11 @@ func AddCopy(p Provider, from string) (string, error) {
 	if p.KeysURL == "" {
 		p.KeysURL = src.KeysURL
 	}
-	return add(p, false)
+	id, err := add(p, false)
+	if err != nil {
+		return id, err
+	}
+	return id, copyStripPrefs(src.ID, id)
 }
 
 // hostID is an id for a provider from the host it is on: api.relay.com is

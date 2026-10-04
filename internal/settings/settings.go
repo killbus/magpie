@@ -294,6 +294,9 @@ type Settings struct {
 	// keeps the name magpie knows the model by.
 	ModelWires map[string]string   `json:"modelWires,omitempty"`
 	ModelStrip map[string][]string `json:"modelStrip,omitempty"`
+	// ModelStripInherit stores explicit opt-outs only. Missing means inherit
+	// the provider's strip paths, including for configurations from older versions.
+	ModelStripInherit map[string]bool `json:"modelStripInherit,omitempty"`
 	// ModelAPIs is the one API a model is asked on at its provider, by
 	// "<provider id>/<model id>": chat, responses or anthropic, for a relay
 	// whose one key serves some models on one and others on another

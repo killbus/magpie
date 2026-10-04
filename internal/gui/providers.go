@@ -24,44 +24,47 @@ import (
 // with one key, the gateway that fronts them, and who is routed where.
 
 type modelJSON struct {
-	Strip    []string `json:"strip,omitempty"`
-	StripAll []string `json:"stripAll,omitempty"`
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`              // the user's name for it, if they gave one
-	Default  string   `json:"default,omitempty"` // its own name, when the user gave it another
-	Kept     []string `json:"kept,omitempty"`    // the reasoning levels the user keeps of Efforts, when not all
-	Efforts  []string `json:"efforts,omitempty"`
-	Given    bool     `json:"given,omitempty"`     // its levels aren't known: Efforts are those it can be given, Kept those it was
-	Images   bool     `json:"images"`              // agents are told it can see images
-	ImageSet bool     `json:"imageSet,omitempty"`  // the user said so, rather than its vendor
-	Own      bool     `json:"ownImages,omitempty"` // its vendor's answer, which a staged Restore default shows
-	On       bool     `json:"on"`                  // exposed to agents
-	Context  int      `json:"context,omitempty"` // the window agents are told: the user's, else Listed
-	Listed   int      `json:"listed,omitempty"`  // its window before the user's: its vendor's list's, else models.dev's
-	Max      int      `json:"max,omitempty"`     // the most its context may be set to, above Listed
-	Free     bool     `json:"free,omitempty"`    // costs the subscription nothing
-	Rate     float64  `json:"rate,omitempty"`    // the credits a request costs the subscription, as a multiple
-	RateWas  float64  `json:"rateWas,omitempty"` // the rate before a discount running now
-	API      string   `json:"api,omitempty"`     // the one API the user said it is asked on
-	Auto     []string `json:"auto,omitempty"`    // the APIs its vendor's list says it is served on, what Auto asks it on
-	Same     string   `json:"same,omitempty"`    // the model the user said it is the same as, for the groups magpie finds (#583)
-	Merge    string   `json:"merge,omitempty"`   // what those groups merge it by when the user says nothing
+	Strip        []string `json:"strip,omitempty"`
+	StripAll     []string `json:"stripAll,omitempty"`
+	InheritStrip bool     `json:"inheritStrip"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`              // the user's name for it, if they gave one
+	Default      string   `json:"default,omitempty"` // its own name, when the user gave it another
+	Kept         []string `json:"kept,omitempty"`    // the reasoning levels the user keeps of Efforts, when not all
+	Efforts      []string `json:"efforts,omitempty"`
+	Given        bool     `json:"given,omitempty"`     // its levels aren't known: Efforts are those it can be given, Kept those it was
+	Images       bool     `json:"images"`              // agents are told it can see images
+	ImageSet     bool     `json:"imageSet,omitempty"`  // the user said so, rather than its vendor
+	Own          bool     `json:"ownImages,omitempty"` // its vendor's answer, which a staged Restore default shows
+	On           bool     `json:"on"`                  // exposed to agents
+	Context      int      `json:"context,omitempty"`   // the window agents are told: the user's, else Listed
+	Listed       int      `json:"listed,omitempty"`    // its window before the user's: its vendor's list's, else models.dev's
+	Max          int      `json:"max,omitempty"`       // the most its context may be set to, above Listed
+	Free         bool     `json:"free,omitempty"`      // costs the subscription nothing
+	Rate         float64  `json:"rate,omitempty"`      // the credits a request costs the subscription, as a multiple
+	RateWas      float64  `json:"rateWas,omitempty"`   // the rate before a discount running now
+	API          string   `json:"api,omitempty"`       // the one API the user said it is asked on
+	Auto         []string `json:"auto,omitempty"`      // the APIs its vendor's list says it is served on, what Auto asks it on
+	Same         string   `json:"same,omitempty"`      // the model the user said it is the same as, for the groups magpie finds (#583)
+	Merge        string   `json:"merge,omitempty"`     // what those groups merge it by when the user says nothing
 }
 
 type providerJSON struct {
-	ID        string            `json:"id"`
-	Name      string            `json:"name"`
-	Icon      string            `json:"icon"`
-	Preset    string            `json:"preset"`
-	Host      string            `json:"host"`
-	Chat      string            `json:"chat"`
-	Responses string            `json:"responses"`
-	Anthropic string            `json:"anthropic"`
-	Decide    string            `json:"decide,omitempty"` // a decision API: it only routes groups
-	Catalog   string            `json:"catalog"`
-	Website   string            `json:"website"`
-	KeysURL   string            `json:"keysUrl"`
-	Headers   map[string]string `json:"headers,omitempty"`
+	Strip          []string          `json:"strip,omitempty"`
+	StripSupported bool              `json:"stripSupported"`
+	ID             string            `json:"id"`
+	Name           string            `json:"name"`
+	Icon           string            `json:"icon"`
+	Preset         string            `json:"preset"`
+	Host           string            `json:"host"`
+	Chat           string            `json:"chat"`
+	Responses      string            `json:"responses"`
+	Anthropic      string            `json:"anthropic"`
+	Decide         string            `json:"decide,omitempty"` // a decision API: it only routes groups
+	Catalog        string            `json:"catalog"`
+	Website        string            `json:"website"`
+	KeysURL        string            `json:"keysUrl"`
+	Headers        map[string]string `json:"headers,omitempty"`
 	// the vendor searches the web by itself (provider.Searches)
 	Searches bool `json:"searches"`
 	// the proxy its requests go through: "" the global one, "direct"
@@ -353,7 +356,9 @@ func agentUses(agents []*agent.Agent, findGroup func(string) (provider.Group, []
 }
 
 func providerInfo(p provider.Provider, agents []agentUse) providerJSON {
+	modelSettings := settings.Load()
 	out := providerJSON{
+		Strip: modelSettings.ModelStrip[p.ID+"/*"], StripSupported: p.SupportsStrip(),
 		ID: p.ID, Name: p.Name, Icon: p.Icon, Preset: p.Preset, Host: p.Host(),
 		Chat: p.Chat, Responses: p.Responses, Anthropic: p.Anthropic, Decide: p.Decide, ModelTest: p.ModelTest(),
 		Catalog: p.Catalog, Website: p.Website, KeysURL: p.KeysURL,
@@ -425,7 +430,6 @@ func providerInfo(p provider.Provider, agents []agentUse) providerJSON {
 	}
 	seen := map[string]bool{}
 	names, kept := p.ModelNames(), p.ModelEfforts()
-	modelSettings := settings.Load()
 	sames := modelSettings.ModelSameAs
 	// a list fetched before magpie kept each model's most: the one Codex
 	// CLI keeps says it
@@ -460,6 +464,7 @@ func providerInfo(p provider.Provider, agents []agentUse) providerJSON {
 		j.Same = sames[p.ID+"/"+m.ID]
 		j.Strip = modelSettings.ModelStrip[p.ID+"/"+m.ID]
 		j.StripAll = modelSettings.ModelStrip[p.ID+"/*"]
+		j.InheritStrip = provider.StripInheritsIn(modelSettings, p.ID, m.ID)
 		j.Merge = provider.MergeName(m.ID)
 		if len(j.Efforts) == 0 {
 			j.Efforts, j.Given = provider.Levels, true
@@ -728,6 +733,7 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 			// editor's Names & levels changed, by model id, made with the
 			// rest of the Save and not a click at a time
 			ModelPrefs map[string]provider.ModelPref `json:"modelPrefs"`
+			Strip      *[]string                     `json:"strip"` // omitted keeps the provider list; [] clears it
 			// Routing and Affinity, for route, affinity and save: how
 			// requests spread over its keys or accounts, and how long a
 			// conversation stays with the one that answered it. The
@@ -854,6 +860,26 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 				return
 			}
 			in.MaxConcurrency = cc
+			// Validate against the provider being saved before writing anything,
+			// including its old account identity and any newly selected models.
+			check := in
+			if !req.New {
+				id := in.ID
+				if req.From != "" {
+					id = req.From
+				}
+				if current, err := provider.Find(id); err == nil {
+					check = *current
+					check.Models = in.Models
+				}
+			}
+			if check.ID == "" {
+				check.ID = "new-provider"
+			}
+			if err := provider.CheckStripPrefs(check, req.Strip, req.ModelPrefs); err != nil {
+				fail(rw, err)
+				return
+			}
 			var old *provider.Provider
 			if req.New {
 				// a second one of a preset, or a name already in use, is
@@ -952,8 +978,8 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 					in.ID = to
 				}
 			}
-			if len(req.ModelPrefs) > 0 {
-				if err := provider.SetModelPrefs(in.ID, req.ModelPrefs); err != nil {
+			if req.Strip != nil || len(req.ModelPrefs) > 0 {
+				if err := provider.SetModelPrefsWithStrip(in.ID, req.Strip, req.ModelPrefs); err != nil {
 					fail(rw, err)
 					return
 				}

@@ -51,4 +51,17 @@ func TestPluginModelStrip(t *testing.T) {
 	if upstream.head.Get("Authorization") != "Bearer local-test" {
 		t.Fatal("request did not run through plugin fetch")
 	}
+	if err := provider.SetModelStrip("fakeco/*", []string{"reasoning_effort"}); err != nil {
+		t.Fatal(err)
+	}
+	no := false
+	empty := []string{}
+	if err := provider.SetStripPreference("fakeco/fake-1", &empty, &no); err != nil {
+		t.Fatal(err)
+	}
+	recorder = httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"fakeco/fake-1","messages":[],"reasoning_effort":"high"}`)))
+	if recorder.Code != 200 || !gjson.GetBytes(upstream.got, "reasoning_effort").Exists() {
+		t.Fatalf("plugin opt-out: %d %s, upstream %s", recorder.Code, recorder.Body, upstream.got)
+	}
 }
