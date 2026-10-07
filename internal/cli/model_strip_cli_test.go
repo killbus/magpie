@@ -35,3 +35,39 @@ func TestModelStripCmd(t *testing.T) {
 		t.Fatal("rules remain after reset")
 	}
 }
+
+func TestModelStripInheritanceCmd(t *testing.T) {
+	groupsHome(t)
+	saidArgs(t, "strip", "a/*", "reasoning_effort")
+	saidArgs(t, "strip", "a/m", "metadata", "--inherit=false")
+	if out := saidArgs(t, "strip", "a/m"); strings.Contains(out, "reasoning_effort") || !strings.Contains(out, "metadata") || !strings.Contains(out, "inherit strip false") {
+		t.Fatal(out)
+	}
+	saidArgs(t, "strip", "a/m", "--clear")
+	if out := saidArgs(t, "strips"); !strings.Contains(out, "a/m:  (inherit strip false)") {
+		t.Fatal(out)
+	}
+	if out := saidArgs(t, "strip", "a/m"); !strings.Contains(out, "no request fields stripped") {
+		t.Fatal(out)
+	}
+	for _, args := range [][]string{{"strip", "a/*", "--inherit=false"}, {"strip", "a/m", "--inherit=no"}, {"strip", "a/m", "--reset", "--inherit=false"}} {
+		if _, err := refusedArgs(t, args...); err == nil {
+			t.Fatalf("accepted %v", args)
+		}
+	}
+	if out := saidArgs(t, "strip", "a/m", "--reset"); !strings.Contains(out, "reasoning_effort") {
+		t.Fatal(out)
+	}
+	if len(settings.Load().ModelStripInherit) != 0 {
+		t.Fatal("reset left inheritance override")
+	}
+	s := settings.Load()
+	s.ModelStripInherit = map[string]bool{"gone/m": false}
+	if err := settings.Save(s); err != nil {
+		t.Fatal(err)
+	}
+	saidArgs(t, "strip", "gone/m", "--reset")
+	if _, exists := settings.Load().ModelStripInherit["gone/m"]; exists {
+		t.Fatal("could not reset removed provider's empty opt-out")
+	}
+}

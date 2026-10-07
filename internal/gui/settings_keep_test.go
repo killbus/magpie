@@ -166,6 +166,7 @@ func TestSettingsSaveKeepsWhatItDoesNotSend(t *testing.T) {
 		QuotaReads:           "asked",
 		NoAccountDiscovery:   true,
 		ModelStrip:           map[string][]string{"p/*": {"metadata"}, "p/m": {"reasoning_effort"}},
+		ModelStripInherit:    map[string]bool{"p/m": false},
 	}
 	if err := settings.Save(was); err != nil {
 		t.Fatal(err)
