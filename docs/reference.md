@@ -1212,15 +1212,33 @@ magpie model strip 'relay-a/*' metadata
 magpie model strip relay-a/glm-5.3
 magpie model strips
 magpie model strip relay-a/glm-5.3 --reset
+magpie model strip relay-a/glm-5.3 --inherit=false
+magpie model strip relay-a/glm-5.3 --clear
+magpie model strip relay-a/glm-5.3 --inherit=true
 ```
 
-The model editor's **Names & levels → Strip params** accepts the same
-comma-separated paths. Changes take effect on Save; Cancel discards them.
-Restore default removes the model's own paths, not its provider-wide paths.
+The provider editor's **Provider strip params** applies to its models by
+default, including models added later. **Names & levels → Strip params**
+accepts additional model paths. Uncheck **Inherit provider strip rules** to
+use only that model's list; an empty list then strips nothing. The editor
+previews the rules, and marks changes not yet saved. Changes take effect on
+Save; Cancel discards them. Changing inheritance never copies or clears paths.
+Restore default clears the model's own paths and restores inheritance.
 Settings stores these lists in `modelStrip`, keyed by `provider/model` or
-`provider/*`. The two lists are combined and deduplicated: a model's list
-adds to the provider's rather than replacing it. Reset removes only the
-named entry. Nothing is stripped by default.
+`provider/*`, and explicit model opt-outs in `modelStripInherit` as `false`.
+Missing inheritance means true, so existing configurations keep combining
+and deduplicating both lists. `--clear` clears just the named list, preserving
+inheritance; `--reset` also restores a model's inheritance. Neither removes
+the other scope's list. `--inherit=true|false` changes inheritance without
+changing paths. `model strips` includes opt-outs even when their lists are
+empty. Copies and provider renames preserve both settings. Nothing is stripped
+by default.
+
+The provider save API accepts `strip`, and each `modelPrefs` entry accepts
+`strip` and `inheritStrip`. Omitted or null fields preserve their values;
+`strip: []` clears only the list. To restore a model's strip defaults send
+`strip: []` and `inheritStrip: true` together. Strip updates are validated
+before writing the provider and saved together in settings.
 
 Paths address the outgoing JSON: `reasoning_effort` for Chat,
 `reasoning.effort` for Responses, `output_config.effort` for Anthropic,

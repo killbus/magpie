@@ -6929,6 +6929,46 @@ function modelPrefsOfDraft() {
   return x && Object.keys(x).length ? x : undefined;
 }
 
+const stripPaths = (text) => [...new Set(text.split(",").map((path) => path.trim()).filter(Boolean))];
+const stripBaseline = (p) => p?.strip || providers.providers.find((x) => x.id === draft?.copyOf)?.strip || [];
+const providerStripNow = (p) => draft?.stripText === undefined ? stripBaseline(p) : stripPaths(draft.stripText);
+function stripOfDraft(p) {
+  const paths = providerStripNow(p);
+  return JSON.stringify(paths) === JSON.stringify(stripBaseline(p)) ? undefined : paths;
+}
+
+function providerStripField(p) {
+  const box = el("div", "stack strip-provider");
+  const label = el("label", "msame");
+  const value = input(draft.stripText ?? stripBaseline(p).join(", "), "reasoning_effort, reasoning.effort, output_config.effort");
+  value.spellcheck = false;
+  value.disabled = p?.stripSupported === false;
+  const pending = el("span", "hint", t("unsaved"));
+  const update = () => { pending.hidden = stripOfDraft(p) === undefined; };
+  value.oninput = () => { draft.stripText = value.value; update(); draft.onStripChange?.(); };
+  value.onkeydown = (event) => { event.stopPropagation(); if (event.key === "Enter") value.blur(); };
+  label.append(el("span", "", t("Provider strip params")), value);
+  box.append(label, el("span", "hint", t(p?.stripSupported === false
+    ? "This built-in backend does not support request-field stripping."
+    : "Applies to this provider's standard gateway requests unless a model opts out. Comma-separated JSON paths; omitting effort uses the upstream default, not reasoning off. Plugins may rebuild the request after stripping.")), pending);
+  update();
+  return box;
+}
+
+function validateStripDraft(p) {
+  const lists = [stripOfDraft(p), ...Object.values(draft.modelPrefs || {}).map((pref) => pref.strip)].filter((paths) => paths !== undefined);
+  for (const paths of lists) {
+    for (const path of paths) {
+      const parts = path.split(".");
+      if (parts.some((part) => !/^[A-Za-z_][A-Za-z0-9_-]*(\[\])?$/.test(part)) || parts[parts.length - 1].endsWith("[]") || /^model(?:\[\])?$/.test(parts[0])) {
+        editorError(t("Invalid strip path: {path}. Use field, object.field or array[].field; model cannot be stripped.", { path }), "warn");
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 // proxyPicker: the proxy one provider's requests go through (#237) — the
 // one in Settings, none, or its own — so Codex can go through a proxy
 // while a vendor at home goes direct. The draft keeps the choice as
@@ -7921,6 +7961,7 @@ function drawEditor(p, presetID) {
       acct.append(icon(a.agentIcon), el("span", "n", a.user), el("span", "plan", accountPlan(a)));
       ed.append(...field(t("Account"), acct, t("{agent}'s sign-in, read from its own files. Sign out there and this provider goes away.", { agent: a.agentName })));
     }
+    ed.append(providerStripField(p));
     ed.append(...field(t("Models"), renderModels(p), ""));
     if (p.drawIds?.length) ed.append(...renderDrawers(p));
     // a subscription's window too: Codex's backend says 272K for models
@@ -7952,6 +7993,7 @@ function drawEditor(p, presetID) {
     cancel.onclick = cancelEdit;
     const saveBtn = el("button", "text primary", t("Save"));
     saveBtn.onclick = () => {
+      if (!validateStripDraft(p)) return;
       const cx = parseContexts(draft.contexts || "");
       if (cx.error) return editorError(t("Context window: {v} is not a length like 128k or 1m", { v: cx.error }), "warn");
       const ox = parseContexts(draft.outputs || "");
@@ -7973,7 +8015,7 @@ function drawEditor(p, presetID) {
       const priceRate = priceRateOfDraft();
       if (priceRate === undefined) return priceRateError(ed);
       if (priceTypedError(ed)) return;
-      saving(saveBtn, t("Saving…")); providerAction("save", { id: p.id, models: chosenIds(), unlisted: draft.unlisted, fallback: draft.fallback, contexts: cx.map, outputs: ox.map, compacts: cpx.map, proxy, accountProxies: own.map, maxConcurrency, ...queue, priceRate, modelPrefs: modelPrefsOfDraft(), pinUpstream: !!draft.pinUpstream, ...routingOfDraft(p) }, t("{name} saved", { name: p.name })); };
+      saving(saveBtn, t("Saving…")); providerAction("save", { id: p.id, models: chosenIds(), unlisted: draft.unlisted, fallback: draft.fallback, contexts: cx.map, outputs: ox.map, compacts: cpx.map, proxy, accountProxies: own.map, maxConcurrency, strip: stripOfDraft(p), ...queue, priceRate, modelPrefs: modelPrefsOfDraft(), pinUpstream: !!draft.pinUpstream, ...routingOfDraft(p) }, t("{name} saved", { name: p.name })); };
     bar.append(cancel, saveBtn);
     ed.append(bar);
     return ed;
@@ -8186,6 +8228,7 @@ function drawEditor(p, presetID) {
     ed.append(...field(t(pr.regionLabel || "Region"), seg, t("which endpoint {p} is reached through", { p: pr.name })));
   }
 
+  if (!decides) ed.append(providerStripField(p));
   if (p) ed.append(...field(t("Models"), renderModels(p), ""));
   if (p?.drawIds?.length) ed.append(...renderDrawers(p));
   {
@@ -8333,9 +8376,11 @@ function drawEditor(p, presetID) {
   cancel.onclick = cancelEdit;
   const saveBtn = el("button", "text primary", t(isNew ? "Add" : "Save"));
   const save = () => {
+    if (!validateStripDraft(p)) return;
     // new: an Add never replaces a provider that has the id already
     const body = { id: p ? slug(draft.id) || p.id : draft.id, from: p?.id, name: draft.name, preset: draft.preset, key: draft.key || "", chat: draft.chat, responses: draft.responses, anthropic: draft.anthropic, gemini: (draft.gemini || "").trim(), catalog: draft.catalog, models: p ? chosenIds() : draft.extra, headers: headersOf(draft.headers), new: isNew };
     if (isNew && draft.copyOf) body.copyOf = draft.copyOf;
+    body.strip = stripOfDraft(p);
     if (decides || custom) body.decide = (custom && draft.api !== "decide" && !p?.decide ? "" : draft.decide || "").trim();
     if ((body.decide || "").includes(WORKSPACE)) { ed.querySelector(".workspace-id")?.focus({ preventScroll: true }); return editorError(t("Give the workspace ID your API key belongs to, or pick the Token Plan"), "warn"); }
     if (custom) {
@@ -9429,6 +9474,8 @@ function renderModels(p) {
     sayLabel();
     sfx.append(el("span", "", t("Provider in model names")), suffixSegs(sayLabel), sfxSaid);
     names.append(sfx);
+    const stripUpdates = [];
+    draft.onStripChange = () => stripUpdates.forEach((update) => update());
     // the APIs a model can be asked on alone: those of a key's provider
     // it has a URL for, when it has more than one (01huadalang on Discord:
     // 一个 api 里有很多模型但是不同协议)
@@ -9605,20 +9652,43 @@ function renderModels(p) {
       };
       row.append(priceBox);
       const stripNow = () => prefs[id]?.strip ?? m.strip ?? [];
+      const inheritNow = () => prefs[id]?.inheritStrip ?? m.inheritStrip ?? true;
       const stripBox = el("label", "msame");
       const stripInput = input(stripNow().join(", "), "reasoning_effort, reasoning.effort, output_config.effort");
       stripInput.spellcheck = false;
+      stripInput.disabled = p.stripSupported === false;
       stripInput.title = t("Outgoing JSON paths to omit, separated by commas. Supports objects and arrays: reasoning.effort, messages[].reasoning_content. Omitting effort uses the upstream default, not reasoning off.");
-      stripInput.onchange = () => {
-        const paths = [...new Set(stripInput.value.split(",").map((path) => path.trim()).filter(Boolean))];
+      stripInput.oninput = () => {
+        const paths = stripPaths(stripInput.value);
         if (JSON.stringify(paths) === JSON.stringify(m.strip || [])) delete pref().strip;
         else pref().strip = paths;
         drawReset();
       };
-      stripInput.onkeydown = (event) => { event.stopPropagation(); if (event.key === "Enter") stripInput.blur(); else if (event.key === "Escape") { stripInput.value = stripNow().join(", "); stripInput.blur(); } };
+      stripInput.onkeydown = (event) => { event.stopPropagation(); if (event.key === "Enter") stripInput.blur(); };
       stripBox.append(el("span", "", t("Strip params")), stripInput);
       row.append(stripBox);
-      if (m.stripAll?.length) row.append(el("span", "hint", t("Provider-wide strip paths also apply: {paths}", { paths: m.stripAll.join(", ") })));
+      const [inheritBox, inheritInput] = tick(t("Inherit provider strip rules"), inheritNow());
+      inheritInput.disabled = p.stripSupported === false;
+      inheritInput.onchange = () => {
+        if (inheritInput.checked === (m.inheritStrip ?? true)) delete pref().inheritStrip;
+        else pref().inheritStrip = inheritInput.checked;
+        drawReset();
+      };
+      const inherited = el("span", "hint");
+      const effective = el("span", "hint strip-effective");
+      effective.setAttribute("aria-live", "polite");
+      const updateStrip = () => {
+        const global = draft.stripText === undefined && !p.strip ? m.stripAll || [] : providerStripNow(p);
+        inherited.hidden = inheritNow() && !global.length;
+        inherited.textContent = inheritNow()
+          ? t("Provider-wide strip paths also apply: {paths}", { paths: global.join(", ") })
+          : t("This model does not inherit provider strip rules or their future changes.");
+        const paths = [...new Set([...(inheritNow() ? global : []), ...stripNow()])];
+        const pending = prefs[id]?.strip !== undefined || prefs[id]?.inheritStrip !== undefined || inheritNow() && stripOfDraft(p) !== undefined;
+        effective.textContent = t(pending ? "After saving, strip rules: {paths}" : "Current strip rules: {paths}", { paths: paths.length ? paths.join(", ") : t("No fields") });
+      };
+      stripUpdates.push(updateStrip);
+      row.append(inheritBox, inherited, effective);
       const [img, imgCb] = tick(t("Accepts images"), imagesNow());
       img.title = t("Whether agents are told {id} can see images", { id: m.id });
       imgCb.onchange = () => {
@@ -9689,7 +9759,9 @@ function renderModels(p) {
         if (m.price) prefs[id].ownPrice = true;
         showPrice();
         if (m.strip?.length) prefs[id].strip = [];
+        if (m.inheritStrip === false) prefs[id].inheritStrip = true;
         stripInput.value = stripNow().join(", ");
+        inheritInput.checked = inheritNow();
         if (apiSeg) { for (const b of apiSeg.querySelectorAll(".opt")) b.classList.toggle("on", b.dataset.api === apiNow()); slide(apiSeg, "api"); }
         drawReset();
       };
@@ -9699,8 +9771,9 @@ function renderModels(p) {
         unsaved.hidden = !prefs[id] && !draft.priceTyped?.[id];
         // staged back to its own already, there is nothing to restore
         const images = prefs[id]?.ownImages ? false : prefs[id]?.images !== undefined ? prefs[id].images !== !!m.ownImages : !!m.imageSet;
-        const custom = nameNow() !== "" || (prefs[id]?.efforts ? prefs[id].efforts.length > 0 : !!m.kept?.length) || images || apiNow() !== "" || sameNow() !== "" || priceNow() !== null || !!draft.priceTyped?.[id] || stripNow().length > 0;
+        const custom = nameNow() !== "" || (prefs[id]?.efforts ? prefs[id].efforts.length > 0 : !!m.kept?.length) || images || apiNow() !== "" || sameNow() !== "" || priceNow() !== null || !!draft.priceTyped?.[id] || stripNow().length > 0 || !inheritNow();
         reset.hidden = !custom;
+        updateStrip();
       };
       row.append(unsaved, reset);
       drawReset();

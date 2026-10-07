@@ -24,6 +24,18 @@ Run `go test -v ./internal/fonts` without `nogui` on each desktop platform.
 Browser fixtures never read or write user settings, install fonts or contact
 a live gateway.
 
+## Provider Strip Rules
+
+`provider-strip.test.cjs` covers provider-wide paths, model inheritance and
+empty opt-outs, Save/Cancel/reset, invalid input, narrow layout, empty catalogs,
+plugin/account saves, disabled built-in controls and creating a copy. It runs
+in English and Chinese on Chromium and WebKit with mocked APIs. Existing
+`provider-levels-save.test.cjs` also covers model path staging and reset.
+
+```sh
+node --test --test-concurrency=1 internal/gui/tests/provider-strip.test.cjs internal/gui/tests/provider-levels-save.test.cjs
+```
+
 ## Gateway Caller Keys
 
 `gateway-caller-keys.test.cjs` checks the named caller-key list on the

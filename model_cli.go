@@ -54,7 +54,10 @@ const modelUsage = `usage:
   magpie model wires                             the names your vendors are asked for models by
   magpie model strip <provider/model> [paths]    show or set comma-separated outgoing JSON paths to omit
   magpie model strip '<provider>/*' <paths>      omit these paths for every model of this provider
-  magpie model strip <provider/model> --reset    remove only this entry; provider-wide paths still apply
+  magpie model strip <provider/model> --reset    clear model paths and restore inheritance
+  magpie model strip <provider/model> --clear    clear paths without changing inheritance
+  magpie model strip <provider/model> --inherit=false
+                                                 use only this model's own strip paths; --inherit=true restores inheritance
   magpie model strips                            list saved strip rules
   magpie model names                             the models you named or narrowed
   magpie model suffix [on|own|off]               whether the agents' lists name each model with its provider
@@ -73,7 +76,8 @@ const modelUsage = `usage:
   Each is looked for in this order: this model, then <provider id>/*, then the provider's own
   list, then models.dev. --reset removes only the first, and says so when a <provider id>/* value
   still applies. A price comes from '*/<model>' after <provider id>/* and before any list price.
-  Strip paths instead combine provider/* and model entries. Dot paths and arrays are supported:
+  Strip paths combine provider/* and model entries unless --inherit=false; --clear keeps inheritance.
+  Dot paths and arrays are supported:
   reasoning_effort,reasoning.effort,output_config.effort,messages[].reasoning_content.
   Omitted effort uses the upstream default; it does not disable reasoning. Required fields
   should not be stripped; the root model field is protected.
