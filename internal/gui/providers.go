@@ -27,15 +27,16 @@ import (
 // with one key, the gateway that fronts them, and who is routed where.
 
 type modelJSON struct {
-	Strip    []string `json:"strip,omitempty"`
-	StripAll []string `json:"stripAll,omitempty"`
-	ID       string   `json:"id"`
-	Name     string   `json:"name"`              // the user's name for it, if they gave one
-	Default  string   `json:"default,omitempty"` // its own name, when the user gave it another
-	Plain    string   `json:"plain,omitempty"`   // a remote magpie's model's name there alone, when Name has its provider there after it (catalog.Model's)
-	Kept     []string `json:"kept,omitempty"`    // the reasoning levels the user keeps of Efforts, when not all
-	Efforts  []string `json:"efforts,omitempty"`
-	Given    bool     `json:"given,omitempty"` // its levels aren't known: Efforts are those it can be given, Kept those it was
+	Strip        []string `json:"strip,omitempty"`
+	StripAll     []string `json:"stripAll,omitempty"`
+	InheritStrip bool     `json:"inheritStrip"` // the provider-wide strip paths apply, unless the model says they don't
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`              // the user's name for it, if they gave one
+	Default      string   `json:"default,omitempty"` // its own name, when the user gave it another
+	Plain        string   `json:"plain,omitempty"`   // a remote magpie's model's name there alone, when Name has its provider there after it (catalog.Model's)
+	Kept         []string `json:"kept,omitempty"`    // the reasoning levels the user keeps of Efforts, when not all
+	Efforts      []string `json:"efforts,omitempty"`
+	Given        bool     `json:"given,omitempty"` // its levels aren't known: Efforts are those it can be given, Kept those it was
 	// Reasonless: the user said it takes no reasoning ask
 	// (provider.SetModelReasonless): none of Efforts is kept, and none is sent
 	Reasonless bool     `json:"reasonless,omitempty"`
@@ -72,20 +73,22 @@ type modelJSON struct {
 }
 
 type providerJSON struct {
-	ID        string            `json:"id"`
-	Name      string            `json:"name"`
-	Icon      string            `json:"icon"`
-	Preset    string            `json:"preset"`
-	Host      string            `json:"host"`
-	Chat      string            `json:"chat"`
-	Responses string            `json:"responses"`
-	Anthropic string            `json:"anthropic"`
-	Gemini    string            `json:"gemini,omitempty"` // a Gemini API's base (#1346)
-	Decide    string            `json:"decide,omitempty"` // a decision API: it only routes groups
-	Catalog   string            `json:"catalog"`
-	Website   string            `json:"website"`
-	KeysURL   string            `json:"keysUrl"`
-	Headers   map[string]string `json:"headers,omitempty"`
+	Strip          []string          `json:"strip,omitempty"`
+	StripSupported bool              `json:"stripSupported"`
+	ID             string            `json:"id"`
+	Name           string            `json:"name"`
+	Icon           string            `json:"icon"`
+	Preset         string            `json:"preset"`
+	Host           string            `json:"host"`
+	Chat           string            `json:"chat"`
+	Responses      string            `json:"responses"`
+	Anthropic      string            `json:"anthropic"`
+	Gemini         string            `json:"gemini,omitempty"` // a Gemini API's base (#1346)
+	Decide         string            `json:"decide,omitempty"` // a decision API: it only routes groups
+	Catalog        string            `json:"catalog"`
+	Website        string            `json:"website"`
+	KeysURL        string            `json:"keysUrl"`
+	Headers        map[string]string `json:"headers,omitempty"`
 	// JSON fields added to each request's body (provider.ExtraBody, #1604)
 	ExtraBody provider.ExtraBody `json:"extraBody,omitempty"`
 	// the API the user gave a custom provider's Base URL as (BaseAPI)
@@ -582,7 +585,9 @@ func providerInfo(p provider.Provider, agents []agentUse) providerJSON {
 // providerInfoWith is providerInfo with the Claude Desktop numbers read
 // once for the whole list (desktopNumbers).
 func providerInfoWith(p provider.Provider, agents []agentUse, desktop map[string]string) providerJSON {
+	held := settings.Load()
 	out := providerJSON{
+		Strip: held.ModelStrip[p.ID+"/*"], StripSupported: p.SupportsStrip(),
 		ID: p.ID, Name: p.Name, Icon: p.Icon, Preset: p.Preset, Host: p.Host(),
 		Chat: p.Chat, Responses: p.Responses, Anthropic: p.Anthropic, Gemini: p.Gemini, Decide: p.Decide, BaseAPI: p.BaseAPI, ModelTest: p.ModelTest(), TestsAs: p.TestClients(), DecideTest: p.AsksDecideModels(), MarksKinds: p.MarksKinds(),
 		Catalog: p.Catalog, Website: p.Website, KeysURL: p.KeysURL,
@@ -707,7 +712,6 @@ func providerInfoWith(p provider.Provider, agents []agentUse, desktop map[string
 	}
 	seen := map[string]bool{}
 	names, kept := p.ModelNames(), p.ModelEfforts()
-	held := settings.Load()
 	sames := held.ModelSameAs
 	// a list fetched before magpie kept each model's most: the one Codex
 	// CLI keeps says it
@@ -753,6 +757,7 @@ func providerInfoWith(p provider.Provider, agents []agentUse, desktop map[string
 		j.Kind = p.ModelKind(m.ID)
 		j.Strip = held.ModelStrip[p.ID+"/"+m.ID]
 		j.StripAll = held.ModelStrip[p.ID+"/*"]
+		j.InheritStrip = provider.StripInheritsIn(held, p.ID, m.ID)
 		j.Merge = provider.MergeName(m.ID)
 		j.Desktop = desktop[p.ID+"/"+m.ID]
 		if mp, ok := held.ModelPrices[p.ID+"/"+m.ID]; ok {
@@ -1173,6 +1178,9 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 			// editor's Names & levels changed, by model id, made with the
 			// rest of the Save and not a click at a time
 			ModelPrefs map[string]provider.ModelPref `json:"modelPrefs"`
+			// Strip, for save: the provider-wide strip paths; omitted keeps
+			// the provider's current list, an empty slice clears it
+			Strip *[]string `json:"strip"`
 			// Outputs, for save: the reply limits the editor's Max output
 			// says, by model id, "*" for all (provider.SetModelOutputs); a
 			// save that leaves it out keeps them
@@ -1429,6 +1437,26 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 				in.AccessKeyID = strings.TrimSpace(*req.AccessKeyID)
 			}
 			in.SecretAccessKey = strings.TrimSpace(in.SecretAccessKey)
+			// Validate against the provider being saved before writing anything,
+			// including its old account identity and any newly selected models.
+			check := in
+			if !req.New {
+				id := in.ID
+				if req.From != "" {
+					id = req.From
+				}
+				if current, err := provider.Find(id); err == nil {
+					check = *current
+					check.Models = in.Models
+				}
+			}
+			if check.ID == "" {
+				check.ID = "new-provider"
+			}
+			if err := provider.CheckStripPrefs(check, req.Strip, req.ModelPrefs); err != nil {
+				fail(rw, err)
+				return
+			}
 			var old *provider.Provider
 			if req.New && in.NativeCompaction && !in.CarriesCompaction() {
 				fail(rw, fmt.Errorf("%s can't carry Codex's native compaction: only a provider with a Responses API, a ChatGPT account or GitHub Copilot can", cmp.Or(in.Name, in.ID)))
@@ -1638,8 +1666,8 @@ func providerRoutes(mux *http.ServeMux, w Windows) {
 					return
 				}
 			}
-			if len(req.ModelPrefs) > 0 {
-				if err := provider.SetModelPrefs(in.ID, req.ModelPrefs); err != nil {
+			if req.Strip != nil || len(req.ModelPrefs) > 0 {
+				if err := provider.SetModelPrefsWithStrip(in.ID, req.Strip, req.ModelPrefs); err != nil {
 					fail(rw, err)
 					return
 				}

@@ -65,6 +65,30 @@ func TestModelStripOutgoing(t *testing.T) {
 	}
 }
 
+func TestModelStripOptOut(t *testing.T) {
+	fresh(t)
+	upstream := &fake{t: t, ctype: "application/json", reply: `{"id":"ok","choices":[],"usage":{}}`}
+	setup(t, provider.Chat, upstream)
+	s := settings.Load()
+	s.ModelStrip = map[string][]string{"fake/*": {"reasoning_effort"}, "fake/m1": {"metadata"}}
+	s.ModelStripInherit = map[string]bool{"fake/m1": false}
+	if err := settings.Save(s); err != nil {
+		t.Fatal(err)
+	}
+	server := New()
+	w := httptest.NewRecorder()
+	server.Handler().ServeHTTP(w, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"fake/m1","messages":[],"reasoning_effort":"high","metadata":{"test":true}}`)))
+	if w.Code != 200 {
+		t.Fatal(w.Code, w.Body)
+	}
+	if !gjson.GetBytes(upstream.got, "reasoning_effort").Exists() || gjson.GetBytes(upstream.got, "metadata").Exists() {
+		t.Fatalf("unexpected outgoing request: %s", upstream.got)
+	}
+	if calls := server.Recent(); len(calls) != 1 || !slices.Equal(calls[0].Stripped, []string{"metadata"}) {
+		t.Fatalf("unexpected trace: %+v", calls)
+	}
+}
+
 func TestWithoutPaths(t *testing.T) {
 	for _, test := range []struct {
 		name, body, want string
@@ -117,7 +141,8 @@ func TestModelStripGroupFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := settings.Load()
-	config.ModelStrip = map[string][]string{"first/m": {"reasoning_effort"}}
+	config.ModelStrip = map[string][]string{"first/m": {"reasoning_effort"}, "second/*": {"reasoning_effort"}}
+	config.ModelStripInherit = map[string]bool{"second/m": false}
 	if err := settings.Save(config); err != nil {
 		t.Fatal(err)
 	}

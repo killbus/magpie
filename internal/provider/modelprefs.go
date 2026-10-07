@@ -485,8 +485,8 @@ func modelAPI(proto Protocol) bool {
 // place of Price, what the user said it costs (SetModelPrice, #819), and
 // Kind "" what its vendor's list says it makes (SetModelKind, #1399).
 type ModelPref struct {
-	Name       *string        `json:"name,omitempty"`
-	Efforts    *[]string      `json:"efforts,omitempty"`
+	Name         *string        `json:"name,omitempty"`
+	Efforts      *[]string      `json:"efforts,omitempty"`
 	// Reasonless, set, is SetModelReasonless's word: true for no
 	// reasoning ask, false to take that back
 	Reasonless *bool          `json:"reasonless,omitempty"`
@@ -494,7 +494,8 @@ type ModelPref struct {
 	OwnImages  bool           `json:"ownImages,omitempty"`
 	API        *string        `json:"api,omitempty"`
 	Same       *string        `json:"same,omitempty"`
-	Strip      *[]string      `json:"strip,omitempty"`
+	Strip        *[]string      `json:"strip,omitempty"`
+	InheritStrip *bool         `json:"inheritStrip,omitempty"`
 	Price      *catalog.Price `json:"price,omitempty"`
 	OwnPrice   bool           `json:"ownPrice,omitempty"`
 	// Kind is what the model makes, as SetModelKind takes it: "image",
@@ -508,26 +509,25 @@ type ModelPref struct {
 // once, after them all, rather than once a change. It stops at the first
 // that fails, telling the agents of those made before it.
 func SetModelPrefs(pid string, prefs map[string]ModelPref) error {
-	for _, pref := range prefs {
-		if pref.Strip != nil {
-			if _, err := CleanStripPaths(*pref.Strip); err != nil {
-				return err
-			}
-		}
+	return SetModelPrefsWithStrip(pid, nil, prefs)
+}
+
+func SetModelPrefsWithStrip(pid string, paths *[]string, prefs map[string]ModelPref) error {
+	p, err := Find(pid)
+	if err != nil {
+		return err
+	}
+	if err := setStripPrefs(*p, paths, prefs); err != nil {
+		return err
 	}
 	changed := false
 	set := func(c bool, err error) error {
 		changed = changed || c
 		return err
 	}
-	err := func() error {
+	err = func() error {
 		for _, model := range slices.Sorted(maps.Keys(prefs)) {
 			m, ref := prefs[model], pid+"/"+model
-			if m.Strip != nil {
-				if err := SetModelStrip(ref, *m.Strip); err != nil {
-					return err
-				}
-			}
 			if m.Name != nil {
 				if err := set(setModelName(ref, *m.Name)); err != nil {
 					return err
