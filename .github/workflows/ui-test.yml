@@ -1,0 +1,67 @@
+name: UI test
+
+# The Test workflow runs Go only. This one runs the browser regressions
+# that cover what this fork adds on top of upstream main — the provider
+# strip editor and per-model inheritance (provider-strip,
+# provider-levels-save, routing-effort's stripped badge) and the strip
+# strings in ja and de (gui-ja, gui-de, i18n-keys) — on the two engines
+# they cover. The rest of the suite runs locally for the maintainers; see
+# internal/gui/tests/README.md. Extend UI_TESTS as the fork grows.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ui-test-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  ui-test:
+    name: ui-test (chromium + webkit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # CJK text renders in the ja/de/zh regressions; Noto CJK keeps the
+      # screenshots and the text assertions from depending on runner fonts.
+      - name: CJK and emoji fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk fonts-noto-color-emoji
+
+      - name: Playwright
+        run: |
+          npm install --no-save --no-audit --no-fund playwright@1.62.1
+          npx playwright install --with-deps chromium webkit
+
+      # The tests that cover this fork's diff; UI_TESTS overrides the
+      # wildcard in the Makefile.
+      - name: Test
+        env:
+          ARTIFACT_DIR: ui-test-artifacts
+        run: |
+          make test-ui UI_TESTS="internal/gui/tests/provider-strip.test.cjs \
+            internal/gui/tests/provider-levels-save.test.cjs \
+            internal/gui/tests/routing-effort.test.cjs \
+            internal/gui/tests/gui-ja.test.cjs \
+            internal/gui/tests/gui-de.test.cjs \
+            internal/gui/tests/i18n-keys.test.cjs"
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-test-artifacts
+          path: ui-test-artifacts
+          retention-days: 7
+          if-no-files-found: ignore
