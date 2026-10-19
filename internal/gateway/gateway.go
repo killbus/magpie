@@ -305,7 +305,7 @@ func Taken() bool {
 type Call struct {
 	// ID numbers the call in the Recent-calls ring, from 1, for the page
 	// to ask for its bodies by (the ring's summary leaves them out, #1521)
-	ID    uint64    `json:"id,omitempty"`
+	ID uint64 `json:"id,omitempty"`
 	// Route: the Routing page's request (Route.ID) this call is, for it
 	// to ask for the call's bodies by while the ring still has them
 	Route    int64     `json:"route,omitempty"`

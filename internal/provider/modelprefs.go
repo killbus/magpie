@@ -485,19 +485,19 @@ func modelAPI(proto Protocol) bool {
 // place of Price, what the user said it costs (SetModelPrice, #819), and
 // Kind "" what its vendor's list says it makes (SetModelKind, #1399).
 type ModelPref struct {
-	Name         *string        `json:"name,omitempty"`
-	Efforts      *[]string      `json:"efforts,omitempty"`
+	Name    *string   `json:"name,omitempty"`
+	Efforts *[]string `json:"efforts,omitempty"`
 	// Reasonless, set, is SetModelReasonless's word: true for no
 	// reasoning ask, false to take that back
-	Reasonless *bool          `json:"reasonless,omitempty"`
-	Images     *bool          `json:"images,omitempty"`
-	OwnImages  bool           `json:"ownImages,omitempty"`
-	API        *string        `json:"api,omitempty"`
-	Same       *string        `json:"same,omitempty"`
+	Reasonless   *bool          `json:"reasonless,omitempty"`
+	Images       *bool          `json:"images,omitempty"`
+	OwnImages    bool           `json:"ownImages,omitempty"`
+	API          *string        `json:"api,omitempty"`
+	Same         *string        `json:"same,omitempty"`
 	Strip        *[]string      `json:"strip,omitempty"`
-	InheritStrip *bool         `json:"inheritStrip,omitempty"`
-	Price      *catalog.Price `json:"price,omitempty"`
-	OwnPrice   bool           `json:"ownPrice,omitempty"`
+	InheritStrip *bool          `json:"inheritStrip,omitempty"`
+	Price        *catalog.Price `json:"price,omitempty"`
+	OwnPrice     bool           `json:"ownPrice,omitempty"`
 	// Kind is what the model makes, as SetModelKind takes it: "image",
 	// "video", or "" for what its vendor's list and name say (#1399)
 	Kind *string `json:"kind,omitempty"`
