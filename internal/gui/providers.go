@@ -55,6 +55,13 @@ type modelJSON struct {
 	Same       string   `json:"same,omitempty"`      // the model the user said it is the same as, for the groups magpie finds (#583)
 	Merge      string   `json:"merge,omitempty"`     // what those groups merge it by when the user says nothing
 	Kind       string   `json:"kind,omitempty"`      // what the user said it makes: image or video (#1399)
+	// Override is the param override JSON saved for this model (raw, as
+	// stored); OverrideFrom says where it came from — "own" for the
+	// model's, "provider" for its provider's <pid>/*, empty for none —
+	// and OverrideOff: the model opted out of its provider's override.
+	Override     json.RawMessage `json:"override,omitempty"`
+	OverrideFrom string          `json:"overrideFrom,omitempty"`
+	OverrideOff  bool            `json:"overrideOff,omitempty"`
 	// Desktop is the number Claude Desktop's menu says beside this model
 	// (gateway.DesktopNumber), so a row of that menu can be matched to its
 	// provider (#2578): only for a model Claude Desktop, installed here,
@@ -791,6 +798,17 @@ func providerInfoWith(p provider.Provider, agents []agentUse, desktop map[string
 		if provider.Reasonless(p.ID, m.ID) {
 			// none of its levels is kept: each is there to tick again
 			j.Reasonless, j.Kept = true, nil
+		}
+		// the param override: the model's own, its provider's <pid>/*, or
+		// none; the opt-out says the model keeps the body as magpie builds
+		// it even where the provider has one
+		if raw, ok := held.ModelOverride[p.ID+"/"+m.ID]; ok {
+			j.Override, j.OverrideFrom = raw, "own"
+		} else if raw, ok := held.ModelOverride[p.ID+"/*"]; ok {
+			j.Override, j.OverrideFrom = raw, "provider"
+		}
+		if v, ok := held.ModelOverrideInherit[p.ID+"/"+m.ID]; ok && !v {
+			j.OverrideOff = true
 		}
 		return j
 	}

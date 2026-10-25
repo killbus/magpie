@@ -8190,6 +8190,103 @@ function extraBodyOf(text) {
   }
   return { value: v };
 }
+// overrideEditor: the Param Override JSON one model is given — a New API
+// param_override, the top-level keys set as they are and an "operations"
+// list — staged in draft.modelPrefs and made with the editor's Save, as the
+// rest is. One JSON, the whole override: a field is deleted with a "delete"
+// operation, not a separate box. A model may instead be kept out of its
+// provider's override (OverrideOff), which is the Inherit switch beside it.
+function overrideEditor(p, id, prefs, redraw) {
+  const m = p.models.find((x) => x.id === id) || { id };
+  const text = (v) => (v && typeof v === "object" ? JSON.stringify(v, null, 2) : (v || ""));
+  const own = text(prefs[id]?.override ?? (m.overrideFrom === "own" ? m.override : ""));
+  const fromProvider = m.overrideFrom === "provider" ? m.override : "";
+  const offNow = () => prefs[id]?.overrideOff ?? !!m.overrideOff;
+  const ed = el("div", "editor override-editor");
+  const head = el("div", "ehead");
+  head.append(el("b", "", t("Param override for {id}", { id: m.id })));
+  ed.append(head);
+  ed.append(el("p", "hint", t("A New API param_override: top-level keys are set as they are, and \"operations\" runs in order. A field is deleted with a delete operation, e.g. {\"operations\":[{\"path\":\"temperature\",\"mode\":\"delete\"}]}.")));
+  if (fromProvider) {
+    const line = el("p", "hint");
+    line.append(el("b", "", t("Its provider has one for every model.")), document.createTextNode(" " + t("Leave the box empty to inherit it, or write one here for this model alone.")));
+    ed.append(line);
+  }
+  const ta = el("textarea", "json");
+  ta.value = own;
+  ta.spellcheck = false;
+  ta.wrap = "off";
+  ta.rows = Math.min(14, Math.max(4, (ta.value || "{\n\n}").split("\n").length));
+  ta.placeholder = fromProvider ? text(fromProvider) : "{\n  \"temperature\": 0.2\n}";
+  ta.setAttribute("aria-label", t("Param override JSON"));
+  const why = el("div", "why");
+  why.setAttribute("aria-live", "polite");
+  const check = () => {
+    const v = ta.value.trim();
+    if (!v) { ta.classList.remove("bad"); ta.setAttribute("aria-invalid", "false"); why.textContent = ""; return; }
+    let err = "";
+    try {
+      const x = JSON.parse(v);
+      if (!x || typeof x !== "object" || Array.isArray(x)) err = t("write a JSON object, like {\"temperature\": 0.2}");
+      else if (Object.prototype.hasOwnProperty.call(x, "model")) err = t("the root model field is protected and can't be overridden");
+      else if ([].concat(x.operations || []).some((o) => o && [o.path, o.from, o.to].some((pth) => typeof pth === "string" && (pth === "model" || pth.startsWith("model.") || pth.startsWith("model["))))) err = t("the root model field is protected and can't be overridden");
+    } catch (e) { err = t("not valid JSON: {why}", { why: e.message }); }
+    ta.classList.toggle("bad", !!err);
+    ta.setAttribute("aria-invalid", err ? "true" : "false");
+    why.textContent = err;
+  };
+  ta.oninput = () => { check(); };
+  ta.onkeydown = (e) => { e.stopPropagation(); if (e.key === "Escape") closeModal(); };
+  check();
+  ed.append(ta, why);
+  // the inherit switch: a model kept out of its provider's override
+  const [offRow, offCb] = tick(t("Keep this model out of its provider's override"), offNow());
+  offCb.onchange = () => {
+    const x = prefs[id] = prefs[id] || {};
+    if (offCb.checked === !!m.overrideOff) delete x.overrideOff; else x.overrideOff = offCb.checked;
+    if (!Object.keys(x).length) delete prefs[id];
+    offRow.classList.toggle("off", offCb.checked);
+    ta.disabled = offCb.checked;
+  };
+  offRow.classList.toggle("off", offCb.checked);
+  ta.disabled = offCb.checked;
+  ed.append(offRow);
+  const bar = el("div", "bar");
+  const cancel = el("button", "text", t("Cancel"));
+  cancel.onclick = (e) => { e.stopPropagation(); closeModal(); };
+  const save = el("button", "text primary", t("Save"));
+  save.onclick = (e) => {
+    e.stopPropagation();
+    const v = ta.value.trim();
+    const x = prefs[id] = prefs[id] || {};
+    if (!v) {
+      // empty: inherit the provider's, or none; a model with its own loses
+      // it, which clearOverride says
+      if (m.overrideFrom === "own") x.clearOverride = true; else delete x.clearOverride;
+      delete x.override;
+    } else {
+      // a value the check already refused (not an object, or the protected
+      // root model) is not saved: it stays open with what is wrong said
+      if (ta.classList.contains("bad")) { check(); return; }
+      let parsed;
+      try { parsed = JSON.parse(v); } catch (err) { check(); return; }
+      delete x.clearOverride;
+      x.override = parsed;
+    }
+    if (!Object.keys(x).length) delete prefs[id];
+    closeModal();
+    redraw?.();
+    status(t("{model}'s param override is made with the Save", { model: id }), "ok");
+  };
+  bar.append(el("span", "grow"), cancel, save);
+  ed.append(bar);
+  openModal(ed);
+  ta.focus();
+}
+
+// extraBodyEditor: the JSON fields added to every request to a provider
+// (provider.ExtraBody, #1604), staged as draft.extraBody and made with the
+// editor's Save.
 function extraBodyEditor() {
   const box = el("div", "extra-body");
   const ta = el("textarea", "json");
@@ -11038,6 +11135,11 @@ function renderModels(p) {
         const k = kindNow(id);
         acts.push({ name: k ? t("Makes: {kind}…", { kind: t(KIND_NAMES[k]) }) : t("Makes: Auto…"), icon: "M2.5 4h11v8h-11zM6.5 6.25v3.5L9.5 8z", tip: t("Say this model makes images or videos, when the provider's model list doesn't"), run: () => pickKind(c, id) });
       }
+      // the model's param override: one JSON, the whole override
+      {
+        const has = !!(draft.modelPrefs?.[id]?.override || m.overrideFrom || m.override);
+        acts.push({ name: has ? t("Param override…") : t("Add a param override…"), icon: "M3 3h10v10H3zM5.5 6.5h5M5.5 9.5h3", tip: t("Adjust this model's requests at the wire: a New API param_override JSON"), run: () => overrideEditor(p, id, prefs, () => { drawNames(); }) });
+      }
       openRowMenu(c, acts);
     };
     // the API it is asked on, when one is picked (or staged)
@@ -11051,6 +11153,19 @@ function renderModels(p) {
     if (kind) {
       const tag = el("span", "badge mkind-tag", t(kind === "video" ? "video" : "image"));
       tag.title = t("{kind}, as you said; right-click to change", { kind: t(KIND_NAMES[kind]) });
+      c.append(tag);
+    }
+    // a param override in force for it, its own or its provider's, and
+    // whether it was kept out of the provider's
+    if (prefs[id]?.override || m.overrideFrom) {
+      const tag = el("span", "badge moverride-tag", t("override"));
+      tag.title = m.overrideFrom === "provider" && !prefs[id]?.override
+        ? t("Its provider's param override applies; right-click to give it its own or keep it out")
+        : t("A param override applies to its requests; right-click to change it");
+      c.append(tag);
+    } else if (prefs[id]?.overrideOff || m.overrideOff) {
+      const tag = el("span", "badge moverride-off-tag", t("no override"));
+      tag.title = t("Kept out of its provider's param override; right-click to change");
       c.append(tag);
     }
   };
@@ -21855,6 +21970,15 @@ function maskedBadge(m) {
   b.setAttribute("aria-label", b.title);
   b.onclick = (e) => { e.stopPropagation(); openMaskRecord(m.key); };
   b.onkeydown = (e) => e.stopPropagation(); // Enter on it isn't the row's
+  return b;
+}
+// overrideBadge: the param override operations that changed a request's
+// body, for Recent calls; the lines are the Routing page's own words
+function overrideBadge(lines) {
+  const b = el("span", "override-badge");
+  b.append(svg("M3 3h10v10H3zM5.5 6.5h5M5.5 9.5h3", 11, 1.6), el("span", "", fmtN(lines.length)));
+  b.title = t(lines.length === 1 ? "1 param override operation changed this request: {lines}" : "{n} param override operations changed this request: {lines}", { n: fmtN(lines.length), lines: lines.join("; ") });
+  b.setAttribute("aria-label", b.title);
   return b;
 }
 // openMaskRecord: Insights › Masking, on request key when there is one; the

@@ -798,6 +798,22 @@ type Settings struct {
 	// Absent leaves it to the vendor's list and the model's name (see
 	// provider.SetModelKind).
 	ModelKinds map[string]string `json:"modelKinds,omitempty"`
+	// ModelOverride is the New API param_override JSON the user gave a
+	// model, by "<provider id>/<model id>" (or "<provider id>/*" for every
+	// model of that provider): the raw JSON, whose content is kept as
+	// written but whose spacing the settings file's own indentation
+	// rewrites, re-parsed by the provider/override engine at the final
+	// outbound body (see provider.SetModelOverride). A model's own value
+	// wins over its provider's. Absent sends the body unchanged.
+	ModelOverride map[string]json.RawMessage `json:"modelOverride,omitempty"`
+	// ModelOverrideInherit stores the user's explicit opt-outs from a
+	// model's provider-level override, by "<provider id>/<model id>": a
+	// false says the model does not inherit its provider's "<pid>/*"
+	// override, and keeps the body as magpie builds it where it has none of
+	// its own (a model's own override still applies). Absent inherits the
+	// provider's override, including for a model configured before this
+	// field existed (see provider.ModelOverrideOf).
+	ModelOverrideInherit map[string]bool `json:"modelOverrideInherit,omitempty"`
 	// The main window's size as it last settled, width and height, so it
 	// opens at it again after a restart: the size it is restored to, kept as
 	// it was while it is maximised, and a side fitted to a smaller screen

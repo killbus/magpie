@@ -1463,6 +1463,71 @@ as broken. An image model is the exception that follows the rule above: it is
 tested by the name magpie knows it by, on the images API and on the chat it
 falls back to, because that is how a drawing is asked for.
 
+### Adjusting a request's fields (param override)
+
+A model's requests can be adjusted at the wire, after magpie's own protocol
+translation and its wire-tier and extra-body fields and before the request is
+signed, with New API's **param override** (`param_override`) JSON. It reaches
+the final body, so it also changes the fields magpie itself wrote:
+
+```sh
+magpie model override relay-b/gpt-5.5                              # the override in force
+magpie model override relay-b/gpt-5.5 '{"temperature":0.2}'        # a top-level key, set as it is
+magpie model override relay-b/gpt-5.5 '{"operations":[{"path":"max_tokens","mode":"set","value":8000}]}'
+magpie model override 'relay-b/*' '{"service_tier":"priority"}'    # every model of the provider
+magpie model override relay-b/gpt-5.5 --reset                      # take it away
+magpie model override relay-b/gpt-5.5 --no-inherit                 # keep it out of relay-b/*'s
+magpie model overrides                                             # the overrides you set
+```
+
+The JSON is New API's dialect verbatim: top-level keys are set as they are
+(a legacy form), and an `operations` list runs in order after them. Paths are
+gjson's (`a.b.0`, `*` any key or index, `-1` an array's last, `\.` a dot in a
+key). The body-side modes are `set`, `delete`, `move`, `copy`, `prepend`,
+`append`, `trim_prefix`, `trim_suffix`, `ensure_prefix`, `ensure_suffix`,
+`trim_space`, `to_lower`, `to_upper`, `replace`, `regex_replace`,
+`prune_objects` and `return_error`. `keep_origin` is honored on `set`,
+`prepend` and `append`. An operation may carry `conditions` — a list of
+`{path, mode, value, invert, pass_missing_key}`, or an object of key: value —
+matched against the body first and then the request's identity (`model`,
+`original_model`, `request_path`, `protocol`, `agent`, `stream`), with `logic`
+`AND` or `OR` (the default). A condition's `mode` is `full`, `prefix`,
+`suffix`, `contains`, `regex`, `gt`, `gte`, `lt` or `lte`.
+
+A field is deleted with a standard `delete` operation — `{"operations":
+[{"path":"temperature","mode":"delete"}]}` — not a separate command or box.
+The model's own override wins over its provider's `'<provider>/*'`, and a
+model can be kept out of its provider's override: `--no-inherit` in the CLI
+(`--inherit` puts it back), and the *Keep this model out of its provider's
+override* switch in the editor. An opt-out leaves the model's own override in
+force where it has one; it only stops its provider's `'<provider>/*'` from
+being run for it.
+
+The **root `model` field is protected**: an override that sets, moves or
+copies onto `model` (or a path under it) is refused at save time, because that
+field names the upstream request. Every other field — including one magpie's
+wire tier or the user's extra body wrote — can be changed. Header modes
+(`set_header`, `pass_headers`, `sync_fields`, …) are refused: the wire's last
+moment has no header-override context; the agent-level
+`param-override` middleware plugin is where a header is set pre-routing.
+
+`return_error` turns a request away before any upstream call, with the
+configured `message`, `status_code` (default 400), `code`, `type` and
+`skip_retry`. With `skip_retry: true` (the default) the route ends there and
+the agent is told the error, with no account rested; with `skip_retry: false`
+the next candidate is tried. The override runs exactly once per outbound
+attempt, on the body that attempt sends, so a non-idempotent operation (an
+`append`, a `regex_replace`, a `move`) never runs twice, and the bytes signed
+are the bytes sent. What changed is recorded on the try, one line per
+operation (`delete temperature`, `set x = y`, `move a -> b`), and shown in the
+Routing page and Recent calls.
+
+A translated request is adjusted after the translation, so a field the
+translation wrote can be changed; a count-tokens or passthrough request
+through the standard send path is adjusted too. What differs from New API: the
+root `model` is protected, header modes are unsupported, and the condition
+context is magpie's request identity rather than a New API channel's.
+
 ### Routing groups
 
 A routing group is several models, from one provider or many, that an agent

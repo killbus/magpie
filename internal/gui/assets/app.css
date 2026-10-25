@@ -3057,13 +3057,17 @@ body.window .ag-sk-icon { width: 22px; height: 22px; border-radius: 6px; }
 .editor .headers .pair.col .hhead { display: flex; gap: 8px; align-items: center; width: 100%; }
 .editor .headers .pair.col .hhead input { flex: 1; min-width: 0; }
 .editor .headers .pair.col .side { flex: none; }
-.editor .headers textarea.json, .editor .extra-body textarea.json { width: 100%; box-sizing: border-box; padding: 7px 9px; border-radius: 7px; border: 1px solid var(--line); background: var(--card); color: var(--fg); outline: none; font-family: var(--code-font, var(--code)); font-size: 12px; line-height: 1.5; resize: vertical; tab-size: 2; white-space: pre; overflow: auto; transition: border-color .12s, box-shadow .12s; }
-:where(html[data-fonts]) .editor .headers textarea.json, :where(html[data-fonts]) .editor .extra-body textarea.json { font-style: var(--code-style, inherit); font-weight: var(--code-weight, inherit); font-stretch: var(--code-stretch, 100%); }
-.editor .headers textarea.json.bad, .editor .extra-body textarea.json.bad { border-color: var(--danger, #d66); }
+.editor .headers textarea.json, .editor .extra-body textarea.json, .editor .override-editor textarea.json { width: 100%; box-sizing: border-box; padding: 7px 9px; border-radius: 7px; border: 1px solid var(--line); background: var(--card); color: var(--fg); outline: none; font-family: var(--code-font, var(--code)); font-size: 12px; line-height: 1.5; resize: vertical; tab-size: 2; white-space: pre; overflow: auto; transition: border-color .12s, box-shadow .12s; }
+:where(html[data-fonts]) .editor .headers textarea.json, :where(html[data-fonts]) .editor .extra-body textarea.json, :where(html[data-fonts]) .editor .override-editor textarea.json { font-style: var(--code-style, inherit); font-weight: var(--code-weight, inherit); font-stretch: var(--code-stretch, 100%); }
+.editor .headers textarea.json.bad, .editor .extra-body textarea.json.bad, .editor .override-editor textarea.json.bad { border-color: var(--danger, #d66); }
 /* a provider's extra body fields (#1604): the JSON, and why it can't be saved */
 .editor .extra-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.editor .extra-body .why { font-size: 12px; line-height: 1.45; color: var(--red); overflow-wrap: anywhere; }
-.editor .extra-body .why:empty { display: none; }
+.editor .extra-body .why, .editor .override-editor .why { font-size: 12px; line-height: 1.45; color: var(--red); overflow-wrap: anywhere; }
+.editor .extra-body .why:empty, .editor .override-editor .why:empty { display: none; }
+/* a model's param override: one JSON box, the inherit switch under it */
+.editor .override-editor { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.editor .override-editor textarea.json { min-height: 96px; }
+.editor .override-editor textarea.json:disabled { opacity: .55; }
 .segs { position: relative; display: inline-flex; padding: 2px; border-radius: 7px; background: var(--pill); align-self: flex-start; }
 .opt { position: relative; z-index: 1; white-space: nowrap; height: 22px; padding: 0 10px; border-radius: 5px; font-size: 12px; color: var(--muted); transition: color .18s var(--ease), transform .14s var(--ease); }
 .opt.on { color: var(--fg); }
