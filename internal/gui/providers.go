@@ -80,6 +80,14 @@ type modelJSON struct {
 	// RemoteList says the list price is what the other magpie counts the
 	// model at, as its list told (a Remote magpie's), not models.dev's
 	RemoteList bool `json:"remoteList,omitempty"`
+	// OverrideFrom says where the param override that applies to this model
+	// comes from: "own" for the model's, "provider" for its provider's
+	// <pid>/*, empty for none. OverrideOff: the model opted out of its
+	// provider's (magpie model override), so none applies to it. Override is
+	// the model's own, as the editor shows and saves it.
+	Override     json.RawMessage `json:"override,omitempty"`
+	OverrideFrom string          `json:"overrideFrom,omitempty"`
+	OverrideOff  bool            `json:"overrideOff,omitempty"`
 }
 
 type providerJSON struct {
@@ -100,6 +108,9 @@ type providerJSON struct {
 	Headers   map[string]string `json:"headers,omitempty"`
 	// JSON fields added to each request's body (provider.ExtraBody, #1604)
 	ExtraBody provider.ExtraBody `json:"extraBody,omitempty"`
+	// Override is the param override for every model of it, <pid>/* (magpie
+	// model override), as the editor shows and saves it
+	Override json.RawMessage `json:"override,omitempty"`
 	// headers of the vendor's reply passed on (provider.ReplyHeaders, #4145)
 	ReplyHeaders []string `json:"replyHeaders,omitempty"`
 	// headers of the agent's request passed on (provider.PassHeaders)
@@ -692,6 +703,10 @@ func providerInfoWith(p provider.Provider, ls provider.Listing, agents []agentUs
 		AccountConcurrency: p.AccountConcurrency, AccountWeights: p.AccountWeights, QueueLimit: p.QueueLimit, QueueWait: p.QueueWait, MaxRPM: p.MaxRPM,
 		Outputs: provider.OutputsOf(p.ID), Compacts: provider.CompactsOf(p.ID),
 	}
+	// the param override for every model of it (magpie model override)
+	if raw, ok := p.ModelOverrides()["*"]; ok {
+		out.Override = raw
+	}
 	if p.Account != nil {
 		for _, r := range p.AccountRefs() {
 			if s := provider.SeatNameOf(p.ID, r); s != "" {
@@ -933,6 +948,20 @@ func providerInfoWith(p provider.Provider, ls provider.Listing, agents []agentUs
 		if provider.Reasonless(p.ID, m.ID) {
 			// none of its levels is kept: each is there to tick again
 			j.Reasonless, j.Kept = true, nil
+		}
+		// the param override that applies to it (magpie model override): its
+		// own, else its provider's <pid>/* unless it opted out of that, else
+		// none — OverrideOff says so, and only then
+		off := false
+		if v, ok := held.ModelOverrideInherit[p.ID+"/"+m.ID]; ok && !v {
+			off = true
+		}
+		if _, ok := held.ModelOverride[p.ID+"/"+m.ID]; ok {
+			j.Override, j.OverrideFrom = held.ModelOverride[p.ID+"/"+m.ID], "own"
+		} else if _, ok := held.ModelOverride[p.ID+"/*"]; ok && !off {
+			j.OverrideFrom = "provider"
+		} else if off {
+			j.OverrideOff = true
 		}
 		return j
 	}
