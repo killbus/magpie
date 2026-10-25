@@ -17,6 +17,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/tidwall/gjson v1.19.0
 	github.com/tidwall/jsonc v0.3.3
+	github.com/tidwall/sjson v1.2.5
 	github.com/wailsapp/wails/v3 v3.0.0-beta.24
 	golang.org/x/image v0.43.0
 	golang.org/x/net v0.56.0

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -539,6 +540,14 @@ type ModelPref struct {
 	// Kind is what the model makes, as SetModelKind takes it: "image",
 	// "video", or "" for what its vendor's list and name say (#1399)
 	Kind *string `json:"kind,omitempty"`
+	// Override is the param override JSON to save for the model (raw, as the
+	// editor sends it), and ClearOverride takes it away; the two are the
+	// editor's one Param Override field, an empty JSON being a clear
+	Override      json.RawMessage `json:"override,omitempty"`
+	ClearOverride bool            `json:"clearOverride,omitempty"`
+	// OverrideOff opts the model out of its provider's override (true), or
+	// back in (false), for the editor's Inherit switch
+	OverrideOff *bool `json:"overrideOff,omitempty"`
 	// ID is the id the model is listed by at its provider, as SetModelID
 	// takes it: "" for the provider's own. It is applied after every
 	// other change of the save, so those go with the model to its id.
@@ -608,6 +617,24 @@ func SetModelPrefs(pid string, prefs map[string]ModelPref) error {
 					price = nil
 				}
 				if err := SetModelPrice(ref, price); err != nil {
+					return err
+				}
+			}
+			// the param override: an empty JSON or ClearOverride takes it
+			// away, a given one is saved (validated by SetModelOverride),
+			// and the opt-out is set apart; none of it is told to the
+			// agents, as what a request is adjusted by is not in their lists
+			if m.ClearOverride {
+				if _, err := DropModelOverride(ref); err != nil {
+					return err
+				}
+			} else if len(m.Override) > 0 {
+				if err := SetModelOverride(ref, m.Override); err != nil {
+					return err
+				}
+			}
+			if m.OverrideOff != nil {
+				if err := SetModelOverrideInherit(ref, *m.OverrideOff); err != nil {
 					return err
 				}
 			}
