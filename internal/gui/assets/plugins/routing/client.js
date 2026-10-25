@@ -2905,6 +2905,9 @@ function routingPage(part) {
         if (p.refused) s += " · " + t("Copilot refused it: {error}", { error: p.refused });
         items.push([s, "aside"]);
       }
+      // the param override operations that changed the body it went out
+      // as, one line each, as the engine ran them
+      for (const line of tr.overrides || []) items.push([t("Param override: {line}", { line }), "aside override"]);
       // what the vendor said, word for word: the why above is magpie's reading of it
       if (tr.done && !tryOk(tr) && tr.error) {
         const hint = HINTS.find((h) => tr.error.endsWith(" — " + h));

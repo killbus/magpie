@@ -40,6 +40,7 @@ import (
 	"github.com/yetone/magpie/internal/plugin"
 	"github.com/yetone/magpie/internal/pluginrt"
 	"github.com/yetone/magpie/internal/provider"
+	"github.com/yetone/magpie/internal/provider/override"
 	"github.com/yetone/magpie/internal/redact"
 	"github.com/yetone/magpie/internal/settings"
 	"github.com/yetone/magpie/internal/usage"
@@ -404,7 +405,12 @@ type Call struct {
 	// Archive: "<date>/<id>", where the request archive keeps the call,
 	// when it was on (archive.go); wire what it keeps besides
 	Archive string `json:"archive,omitempty"`
-	wire    *wire
+	// Overrides: the param override operations that changed the body the
+	// call went out as, one line each ("delete temperature", "set x = y"),
+	// in the order they ran; nil when the model had none or it changed
+	// nothing (param override)
+	Overrides []string `json:"overrides,omitempty"`
+	wire      *wire
 	// wholeIn/wholeOut are the whole bodies for an observer that asks for
 	// them uncut (the OTLP export, #538): nil leaves it to the 256 KiB
 	// bodies above, which is all the Recent-calls page keeps
@@ -1519,7 +1525,13 @@ func (s *Server) countOn(w http.ResponseWriter, r *http.Request, p provider.Prov
 	// counted, and not at all where there are none
 	wires := sync.OnceValue(func() map[string]string { return settings.Shared().ModelWires })
 	for i, c := range counts {
-		res, err := s.forward(r.Context(), c.p, provider.Anthropic, "/v1/messages/count_tokens", rewriteModel(body, provider.UpstreamNameIn(wires(), c.p.ID, model)), r.Header)
+		// a count request is sent by the same path, so the model's param
+		// override reaches it too; the model is the one magpie knows, not
+		// the wire name the body is rewritten to below
+		ctx := withOverrideAt(r.Context(), &overrideAt{
+			model: model, agent: callerOf(r).agent, stream: false,
+		})
+		res, err := s.forward(ctx, c.p, provider.Anthropic, "/v1/messages/count_tokens", rewriteModel(body, provider.UpstreamNameIn(wires(), c.p.ID, model)), r.Header)
 		if tooMany := (*errRPM)(nil); errors.As(err, &tooMany) {
 			break // its minute filled since: nobody rests, the estimate answers
 		}
@@ -2597,15 +2609,16 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 	promptRead := s.inspectPrompt(tr, from, body, body, sentWhole)
 	var lastTried provider.Provider // the last try's, for its model's context window and the usage's endpoint
 	var skipped []string
-	sent := ""       // the reasoning the last try's model was asked for
-	wentAt := ""     // and the level that went, once translated (wireEffort, #1636)
-	wentTier := ""   // the service tier the last try went out at (noteWireTier, #1784)
-	where := ""      // the last try's provider.Where, for the usage
-	again := 0       // times the last one left has been tried again
-	resealed := 0    // what of the conversation another account sealed was taken out: its reasoning, then its compaction
-	repicked := 0    // times Copilot's Auto was asked again for a model the account is served
-	floored := false // the reply's length raised to what the provider takes
-	plainFor := ""   // the account and model asked again without effort updates (#617)
+	var ovLines []string // the param override operations the try that answered ran
+	sent := ""           // the reasoning the last try's model was asked for
+	wentAt := ""         // and the level that went, once translated (wireEffort, #1636)
+	wentTier := ""       // the service tier the last try went out at (noteWireTier, #1784)
+	where := ""          // the last try's provider.Where, for the usage
+	again := 0           // times the last one left has been tried again
+	resealed := 0        // what of the conversation another account sealed was taken out: its reasoning, then its compaction
+	repicked := 0        // times Copilot's Auto was asked again for a model the account is served
+	floored := false     // the reply's length raised to what the provider takes
+	plainFor := ""       // the account and model asked again without effort updates (#617)
 	// the account and model asked again for a reply that fits the window
 	// the prompt leaves, and how long that is (roomCap)
 	roomFor, roomCap := "", 0
@@ -2971,6 +2984,7 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 		})
 		held := false          // answered as its vendor did a moment ago, without asking
 		var heldBack time.Time // when the first of those held out of their allowance is back
+		var ov *overrideAt     // the param override this try runs, and what it did
 		var queued int64       // ms it waited for a slot of its key's or account's
 		var laneErr error      // turned away by its key's or account's queue
 		at := &wireAt{}        // the level a translated request was built at
@@ -3001,6 +3015,14 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 			// a stream that fails before anything is said is let go at
 			// once (hw.stop), not read on until the vendor hangs up
 			ctx, stop := context.WithCancel(withWireAt(r.Context(), at))
+			// the user's param override for this model, selected by the
+			// model magpie knows it by (c.model), not the body's wire name
+			// a translation writes; the conditions match this request's
+			// identity, and the audit lines it runs are kept on ov
+			ov = &overrideAt{
+				model: c.model, agent: callerOf(r).agent, stream: streamOf(attemptBody),
+			}
+			ctx = withOverrideAt(ctx, ov)
 			if isGroup {
 				ctx = groupTry(ctx)
 			}
@@ -3078,6 +3100,33 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 				}()
 			}
 			stop()
+		}
+		if ov != nil && ov.turnAway != nil {
+			// a return_error turned the request away before it was sent: the
+			// agent has the configured error, and this candidate's account
+			// is not at fault (nothing was asked of it), so nobody rests
+			re := ov.turnAway
+			call.Status, call.Error = re.StatusCode, re.Message
+			s.trace.update(tr, func(t *Route) {
+				tt := &t.Tries[len(t.Tries)-1]
+				tt.Done, tt.Status, tt.Error, tt.Millis = true, call.Status, call.Error, time.Since(began).Milliseconds()
+				tt.Overrides = ov.applied
+				if re.Message != "" {
+					tt.Fail = "override"
+				}
+			})
+			if re.SkipRetry || last {
+				// skip_retry: the route ends here, the agent told, and no
+				// other candidate is asked; a return_error that lets the
+				// route go on and has nowhere left is the same
+				if !kept.sent {
+					failTo(w, kept, from, call.Status, call.Error)
+				}
+				break
+			}
+			// skip_retry false: the loop goes on as for any failed try
+			skipped = append(skipped, c.label()+": "+call.Error)
+			continue
 		}
 		if laneErr != nil {
 			// its key's or account's queue was full, or it waited as long
@@ -3159,6 +3208,12 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 		try := Try{ID: c.rest, Model: c.model, Effort: wentAt, Picked: picked, Fixed: fixed, RuleEffort: ruled, Fast: fast, Start: began, Done: true, Status: call.Status, Millis: ended.Sub(began).Milliseconds(), Error: call.Error, Queued: queued,
 			Served: call.Usage.Served, Upstream: call.Usage.Upstream, Pin: c.p.ClinePassAsked(c.model), Tier: wentTier, TierServed: call.Usage.Tier, Auto: autoPicked(),
 			Net: nt.timing(began, queued), SentBy: sentBy(c.p)}
+		if ov != nil && len(ov.applied) > 0 {
+			// the param override operations that changed the body it went
+			// out as, for the Routing page and Recent calls to show
+			try.Overrides = ov.applied
+			ovLines = ov.applied
+		}
 		if resetFirst != nil {
 			// the reset spent for it before it was asked
 			try.Reset, resetFirst = resetFirst, nil
@@ -3990,6 +4045,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request, from provider.Pro
 	if len(skipped) > 0 {
 		call.Fallback = strings.Join(skipped, "; ")
 	}
+	// the param override operations the try that answered ran, for Recent
+	// calls to show beside the call
+	if len(ovLines) > 0 {
+		call.Overrides = ovLines
+	}
 	call.Millis = time.Since(start).Milliseconds()
 	if !ended.IsZero() {
 		call.Millis = ended.Sub(start).Milliseconds()
@@ -4446,6 +4506,29 @@ func (s *Server) forwardOnce(ctx context.Context, p provider.Provider, to provid
 	if !countsTokens(path) {
 		// the tier it goes at, the user's own fields in it (#1784)
 		noteWireTier(ctx, to, body)
+	}
+	// the user's param override, at the wire's last moment: after every
+	// rewrite above and the extra fields, before it is signed, so the bytes
+	// signed are the bytes sent (override.go). Run once per attempt: the
+	// body it is given is the one the loop built for this try, never one an
+	// override already changed — this function only ever reassigns its own
+	// copy — so an append or a regex_replace runs once, and a try the loop
+	// rebuilt (a token floor, an image described, a smaller output cap)
+	// takes it once more, on its new body.
+	var turnAway *override.ReturnError
+	var oerr error
+	if body, turnAway, oerr = overrideBody(ctx, p, to, path, body); oerr != nil {
+		return nil, oerr
+	}
+	if turnAway != nil {
+		// the request is turned away before it is sent: the agent is given
+		// the configured error as if the vendor had said it, and the
+		// routing loop treats it as an answer of that status
+		req, rerr := http.NewRequestWithContext(ctx, http.MethodPost, p.Base(to)+path, nil)
+		if rerr != nil {
+			return nil, rerr
+		}
+		return overrideReply(req, turnAway), nil
 	}
 	base := p.Base(to)
 	if p.IsOpenCode() && p.OpenCodeFree(gjson.GetBytes(body, "model").String()) {

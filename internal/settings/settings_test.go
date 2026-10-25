@@ -196,13 +196,20 @@ func setPerModel(t *testing.T, s *Settings, key string) []string {
 	var names []string
 	for _, f := range perModelFields(v.Type()) {
 		given := reflect.New(f.Type.Elem()).Elem()
-		switch given.Kind() {
-		case reflect.String:
-			given.SetString("given")
-		case reflect.Bool:
-			given.SetBool(true)
-		case reflect.Slice:
-			given.Set(reflect.MakeSlice(given.Type(), 1, 1))
+		// a json.RawMessage is a slice kind but must hold valid JSON for a
+		// save to marshal it, so it is seeded by its own name, not a made
+		// slice.
+		if _, ok := given.Interface().(json.RawMessage); ok {
+			given.Set(reflect.ValueOf(json.RawMessage(`{"given":true}`)))
+		} else {
+			switch given.Kind() {
+			case reflect.String:
+				given.SetString("given")
+			case reflect.Bool:
+				given.SetBool(true)
+			case reflect.Slice:
+				given.Set(reflect.MakeSlice(given.Type(), 1, 1))
+			}
 		}
 		m := reflect.MakeMap(f.Type)
 		m.SetMapIndex(reflect.ValueOf(key).Convert(f.Type.Key()), given)
@@ -213,6 +220,33 @@ func setPerModel(t *testing.T, s *Settings, key string) []string {
 		t.Fatal("the settings hold no per-model map")
 	}
 	return names
+}
+
+// perModelSame is whether a per-model map's value survived a save: a map of
+// json.RawMessage is the settings file's one such (ModelOverride), and that
+// file is written pretty-printed, so the JSON it stores is re-indented on the
+// way in and out and compared by content and key order, not byte; every other
+// per-model map is compared whole.
+func perModelSame(got, want any) bool {
+	gm, ok := got.(map[string]json.RawMessage)
+	if !ok {
+		return reflect.DeepEqual(got, want)
+	}
+	wm, ok := want.(map[string]json.RawMessage)
+	if !ok || len(gm) != len(wm) {
+		return false
+	}
+	for k, wv := range wm {
+		gv, ok := gm[k]
+		if !ok {
+			return false
+		}
+		var a, b any
+		if json.Unmarshal(gv, &a) != nil || json.Unmarshal(wv, &b) != nil || !reflect.DeepEqual(a, b) {
+			return false
+		}
+	}
+	return true
 }
 
 // A field is per-model for the name and the type and nothing else: the walk
@@ -320,7 +354,7 @@ func TestSettingsPageSaveKeepsWhatOtherPagesSet(t *testing.T) {
 	}
 	for _, name := range names {
 		g, w := reflect.ValueOf(got).FieldByName(name), reflect.ValueOf(want).FieldByName(name)
-		if !reflect.DeepEqual(g.Interface(), w.Interface()) {
+		if !perModelSame(g.Interface(), w.Interface()) {
 			t.Errorf("%s was lost: %v", name, g.Interface())
 		}
 	}

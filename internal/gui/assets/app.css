@@ -3501,6 +3501,9 @@ body:not(.side-nav) #view-settings .set-head.stuck::before { box-shadow: 0 1px 0
 .mask-badge:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--accent-soft), inset 0 0 0 1px var(--accent); }
 .mask-badge.warn { background: var(--amber-soft); color: var(--amber); }
 .mask-badge.warn:hover { background: color-mix(in srgb, var(--amber) 22%, transparent); }
+/* the param override operations that changed a request, on Recent calls */
+.override-badge { flex: none; display: inline-flex; align-items: center; gap: 3px; height: 18px; padding: 0 6px 0 5px; border-radius: 99px; background: var(--pill); color: var(--muted); font-size: 11px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; cursor: help; }
+.override-badge svg { display: block; }
 /* a plugin's settings, under its row (kernel.js ui.form) */
 .row.pref.feat-set { min-height: 44px; padding-left: 30px; }
 .row.pref.feat-set .name { font-size: 12.5px; }

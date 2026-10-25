@@ -616,6 +616,16 @@ function loadCallBodies(c, id) {
 // one agent to one model can come in the same instant
 const callRow = (c) => (c.id ? `#${c.id}` : `${c.time}|${c.agent}|${c.model}`);
 
+// overrideBadge: the param override operations that changed a request's
+// body, for Recent calls; the lines are the Routing page's own words
+function overrideBadge(lines) {
+  const b = el("span", "override-badge");
+  b.append(svg("M3 3h10v10H3zM5.5 6.5h5M5.5 9.5h3", 11, 1.6), el("span", "", fmtN(lines.length)));
+  b.title = t(lines.length === 1 ? "1 param override operation changed this request: {lines}" : "{n} param override operations changed this request: {lines}", { n: fmtN(lines.length), lines: lines.join("; ") });
+  b.setAttribute("aria-label", b.title);
+  return b;
+}
+
 function renderActivity() {
   const g = providers.gateway;
   // what calls left the ring keep, they let go of
@@ -647,6 +657,8 @@ function renderActivity() {
     r.append(el("span", "p", c.from === c.to ? c.from : `${c.from} → ${c.to}`));
     // what masking kept from the vendor, its record a click away
     if (c.masked?.n || c.masked?.warned) r.append(maskedBadge(c.masked));
+    // the param override operations that changed the body it went out as
+    if (c.overrides?.length) r.append(overrideBadge(c.overrides));
     r.append(el("span", "grow"));
     r.append(el("span", "st", c.error ? `${c.status} ${c.error}` : `${c.status} · ${ledTook(c.ms)}` + (c.ttft ? " · " + t("TTFT {ms}", { ms: ledTook(c.ttft) }) : "")));
     r.title = open ? t("Hide request and response bodies") : t("Show request and response bodies");

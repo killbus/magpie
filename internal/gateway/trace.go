@@ -418,6 +418,11 @@ type Try struct {
 	// Auto: the models Copilot's Auto picked for it, in turn — where each
 	// pick came from and Copilot's refusal of it — Model being "auto"
 	Auto []provider.AutoPick `json:"auto,omitempty"`
+	// Overrides: the param override operations that changed the body it was
+	// sent, one line each ("delete temperature", "set x = y", "move a -> b"),
+	// in the order they ran; nil when the model had none, or it changed
+	// nothing (param override)
+	Overrides []string `json:"overrides,omitempty"`
 }
 
 // AutoReset is a Codex reset spent by itself, on Who's account. (Claude's
