@@ -1530,6 +1530,12 @@ stays) and Pick all; the Add sends the models picked. No click moves the
 page, nothing has a left-border accent, and every string has its Chinese.
 The API is faked.
 
+`param-override.test.cjs` is the fork's independent GUI check for a model's
+New API param override: the provider's Advanced JSON, a model chip's editor,
+the root-model refusal, the opt-out, the save payload, Routing's per-operation
+lines and Recent calls' count. It carries its own API fixtures and imports no
+shared test helper. Every language, Chromium and WebKit.
+
 `whats-new.test.cjs` shows what changed after an update (a Discord user:
 to see whether their issue was fixed): after an upgrade the window opens a
 dialog with every release's notes since the version last run, newest first,

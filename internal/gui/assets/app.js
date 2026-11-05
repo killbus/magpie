@@ -8465,7 +8465,7 @@ function modelOverrideEditor(p, id, prefs, redraw) {
   ed.append(offRow);
   const bar = el("div", "bar");
   const save = el("button", "text primary", t("Save"));
-  save.onclick = (e) => {
+  save.onclick = async (e) => {
     e.stopPropagation();
     const v = ta.value.trim(), x = prefs[id] = prefs[id] || {};
     if (!v) {
@@ -8479,7 +8479,8 @@ function modelOverrideEditor(p, id, prefs, redraw) {
       x.override = o.value;
     }
     if (!Object.keys(x).length) delete prefs[id];
-    closeModal();
+    await closeModal();
+    // the provider editor is what saves the staged override
     redraw?.();
     status(t("{model}'s param override is made with the Save", { model: id }), "ok");
   };
@@ -11377,7 +11378,7 @@ function renderModels(p) {
       // the model's param override: one JSON, the whole override
       {
         const has = !!(draft.modelPrefs?.[id]?.override || p.models.find((x) => x.id === id)?.override);
-        acts.push({ name: has ? t("Param override…") : t("Add a param override…"), icon: "M3 3h10v10H3zM5.5 6.5h5M5.5 9.5h3", tip: t("Adjust this model's requests at the wire with one JSON, before the body is signed"), run: () => modelOverrideEditor(p, id, draft.modelPrefs = draft.modelPrefs || {}, () => draw()) });
+        acts.push({ name: has ? t("Param override…") : t("Add a param override…"), icon: "M3 3h10v10H3zM5.5 6.5h5M5.5 9.5h3", tip: t("Adjust this model's requests at the wire with one JSON, before the body is signed"), run: () => modelOverrideEditor(p, id, draft.modelPrefs = draft.modelPrefs || {}, () => { if (editing === p.id) renderProviders(); }) });
       }
       openRowMenu(c, acts);
     };
