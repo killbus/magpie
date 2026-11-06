@@ -1536,6 +1536,13 @@ the root-model refusal, the opt-out, the save payload, Routing's per-operation
 lines and Recent calls' count. It carries its own API fixtures and imports no
 shared test helper. Every language, Chromium and WebKit.
 
+```sh
+node --test internal/gui/tests/param-override.test.cjs
+BROWSER=webkit node --test internal/gui/tests/param-override.test.cjs
+```
+
+`MAGPIE_PARAM_OVERRIDE_ASSETS` points it at another assets folder.
+
 `whats-new.test.cjs` shows what changed after an update (a Discord user:
 to see whether their issue was fixed): after an upgrade the window opens a
 dialog with every release's notes since the version last run, newest first,

@@ -8480,7 +8480,6 @@ function modelOverrideEditor(p, id, prefs, redraw) {
     }
     if (!Object.keys(x).length) delete prefs[id];
     await closeModal();
-    // the provider editor is what saves the staged override
     redraw?.();
     status(t("{model}'s param override is made with the Save", { model: id }), "ok");
   };

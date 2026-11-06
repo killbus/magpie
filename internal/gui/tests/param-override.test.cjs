@@ -10,7 +10,7 @@ const path = require("node:path");
 const { test } = require("node:test");
 const { chromium, webkit } = require("playwright");
 
-const assets = path.resolve(__dirname, "../assets");
+const assets = path.resolve(process.env.MAGPIE_PARAM_OVERRIDE_ASSETS || path.resolve(__dirname, "../assets"));
 const languages = ["en", "zh", "zh-TW", "ja", "de"];
 const engines = process.env.BROWSER ? [process.env.BROWSER] : ["chromium", "webkit"];
 const now = new Date();
@@ -38,7 +38,11 @@ const relay = {
 async function staticFile(route, url) {
   const file = path.join(assets, url.pathname === "/" ? "index.html" : url.pathname);
   const contentType = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png" }[path.extname(file)];
-  return route.fulfill({ body: await fs.readFile(file), contentType });
+  try {
+    return await route.fulfill({ body: await fs.readFile(file), contentType });
+  } catch {
+    return route.fulfill({ status: 404, body: "" });
+  }
 }
 
 function providersAPI(lang, saves, gatewayCalls = []) {
@@ -189,8 +193,9 @@ for (const engine of engines) {
 
           await page.setViewportSize({ width: 420, height: 760 });
           await assertFits(page, editor);
+          const saved = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/provider/save");
           await editor.locator(".bar").getByRole("button", { name: w.Save, exact: true }).click();
-          for (let i = 0; i < 60 && saves.length === 0; i++) await page.waitForTimeout(50);
+          await saved;
           assert.equal(saves.length, 1, "one provider save");
           assert.deepEqual(saves[0].modelPrefs["*"], { override: { temperature: 0.15 } });
           assert.deepEqual(saves[0].modelPrefs.luna, {
@@ -211,7 +216,7 @@ for (const engine of engines) {
             "1 param override operation changed this request: {lines}",
             "{n} param override operations changed this request: {lines}",
           ]);
-          await page.locator(".rt-day").nth(1).click();
+          await page.locator(".rt-days .rt-day:not(.rt-day-more)").nth(1).click();
           await page.locator(".rt-req").first().waitFor();
           await page.locator(".rt-req").first().click();
           const steps = await page.locator(".rt-steps").innerText();
