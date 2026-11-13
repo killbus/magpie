@@ -1,0 +1,56 @@
+name: Param override UI
+
+# The fork's New API param override has one self-contained Playwright file.
+# Keep it out of the upstream GUI suite and run it where the fork can see it.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/param-override-ui.yml
+      - .github/ui-preview/package.json
+      - internal/gui/tests/param-override.test.cjs
+      - internal/gui/assets/app.js
+      - internal/gui/assets/app.css
+      - internal/gui/assets/i18n.js
+      - internal/gui/assets/plugins/gateway/client.js
+      - internal/gui/assets/plugins/routing/client.js
+  pull_request:
+    paths:
+      - .github/workflows/param-override-ui.yml
+      - .github/ui-preview/package.json
+      - internal/gui/tests/param-override.test.cjs
+      - internal/gui/assets/app.js
+      - internal/gui/assets/app.css
+      - internal/gui/assets/i18n.js
+      - internal/gui/assets/plugins/gateway/client.js
+      - internal/gui/assets/plugins/routing/client.js
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.browser }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, webkit]
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Playwright
+        working-directory: .github/ui-preview
+        run: |
+          npm install --no-audit --no-fund --no-package-lock
+          npx playwright install --with-deps "${{ matrix.browser }}"
+      - name: Param override
+        env:
+          BROWSER: ${{ matrix.browser }}
+          NODE_PATH: ${{ github.workspace }}/.github/ui-preview/node_modules
+        run: node --test internal/gui/tests/param-override.test.cjs

@@ -2,6 +2,7 @@ package gui
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -143,6 +144,8 @@ func TestSettingsSaveKeepsWhatItDoesNotSend(t *testing.T) {
 		ModelHeaders:         map[string]map[string]string{"p/m": {"X-Endpoint": "ep-1"}},
 		ModelSystemPrompts:   map[string]string{"p/m": "Answer in Chinese."},
 		ModelTiers:           map[string]string{"p/m": "ultrafast"},
+		ModelOverride:        map[string]json.RawMessage{"p/m": json.RawMessage(`{"temperature":0.2}`)},
+		ModelOverrideInherit: map[string]bool{"p/n": false},
 		RedactRules:          []redact.Rule{{Kind: "prefix", Prefix: "oc_sk_"}},
 		RedactActions:        map[string]string{"API_KEY": "block", "EMAIL": "warn"},
 		RedactAllow:          []string{"team@kelvarn.io"},

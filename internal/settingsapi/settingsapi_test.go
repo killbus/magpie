@@ -29,6 +29,11 @@ func home(t *testing.T) {
 // sample is a value of t that isn't was, as JSON carries it.
 func sample(t reflect.Type, key string, was reflect.Value) reflect.Value {
 	v := reflect.New(t).Elem()
+	if t == reflect.TypeFor[json.RawMessage]() {
+		// a raw message is JSON already: a zero byte is no value of it, and
+		// marshaling one fails before the save is reached
+		return reflect.ValueOf(json.RawMessage(`{"x":1}`)).Convert(t)
+	}
 	switch t.Kind() {
 	case reflect.Bool:
 		v.SetBool(!was.Bool())

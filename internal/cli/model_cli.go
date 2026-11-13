@@ -78,6 +78,19 @@ const modelUsage = `usage:
                                                  the speed it is sent at: Codex's Fast or Ultrafast, for every
                                                  agent with no fast pick of its own (magpie model tier --help)
   magpie model apis [<provider>]                 the models you set an API for, or each of a provider's
+  magpie model override <provider/model>         the param override its requests are adjusted by at the wire
+  magpie model override <provider/model> '<json>'
+                                                 give it one: a New API param_override, the top-level keys
+                                                 set as they are and an "operations" list, e.g.
+                                                 '{"temperature":0.2,"operations":[{"path":"max_tokens","mode":"set","value":8000}]}'
+                                                 '<provider>/*' is every model of the provider; a field is
+                                                 deleted with a "delete" operation, not a command of its own
+  magpie model override <provider/model> --reset
+                                                 take it away
+  magpie model override <provider/model> --no-inherit
+                                                 keep it out of its provider's '<provider>/*' override
+                                                 (its own, if any, still applies); --inherit puts it back
+  magpie model overrides                         the param overrides you set
   magpie model names                             the models you named or narrowed
   magpie model alias <model> <name>              count the model's usage under another model id in Usage,
                                                  Sessions and the usage summaries, e.g. deepseek-v4.1-flash
@@ -174,6 +187,10 @@ func modelCmd(args []string) error {
 		return modelOutput(args[1:])
 	case "wire", "upstream":
 		return modelWire(args[1:])
+	case "override":
+		return modelOverride(args[1:])
+	case "overrides":
+		return modelOverrides()
 	case "spec", "specs-of":
 		return modelSpec(args[1:])
 	case "specs":

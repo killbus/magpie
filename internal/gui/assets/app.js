@@ -8370,6 +8370,110 @@ function extraBodyEditor() {
   return box;
 }
 
+// A param override: one JSON the request bodies of a model's, or of every
+// model of a provider, take at the wire. A provider's is its <pid>/*.
+function overrideText(obj) {
+  return obj && Object.keys(obj).length ? JSON.stringify(obj, null, 2) : "";
+}
+function overrideOf(text) {
+  const s = (text || "").trim();
+  if (!s) return { value: {} };
+  let v;
+  try { v = JSON.parse(s); } catch { return { error: t("not valid JSON") }; }
+  if (!v || typeof v !== "object" || Array.isArray(v)) return { error: t("write a JSON object, like {\"temperature\": 0.2}") };
+  const root = (x) => typeof x === "string" && (x === "model" || x.startsWith("model."));
+  if (Object.prototype.hasOwnProperty.call(v, "model") || [].concat(v.operations || []).some((o) => o && [o.path, o.from, o.to].some(root)))
+    return { error: t("the root model field is protected and can't be overridden") };
+  return { value: v };
+}
+// overrideBox: one override's JSON, and why it can't be saved; set keeps the
+// text in the draft
+function overrideBox(text, set, placeholder) {
+  const box = el("div", "override-editor");
+  const ta = el("textarea", "json");
+  ta.value = text || "";
+  ta.spellcheck = false;
+  ta.wrap = "off";
+  ta.rows = Math.min(12, Math.max(3, ta.value.split("\n").length));
+  if (placeholder) ta.placeholder = placeholder;
+  ta.setAttribute("aria-label", t("Param override JSON"));
+  const why = el("div", "why");
+  why.setAttribute("aria-live", "polite");
+  const check = () => {
+    const err = (ta.value || "").trim() ? overrideOf(ta.value).error || "" : "";
+    ta.classList.toggle("bad", !!err);
+    ta.setAttribute("aria-invalid", err ? "true" : "false");
+    why.textContent = err;
+  };
+  ta.oninput = () => { set(ta.value); check(); };
+  ta.onkeydown = (e) => e.stopPropagation();
+  check();
+  box.append(ta, why);
+  return box;
+}
+// the provider's own, run on every model of it
+function providerOverrideBox() {
+  return overrideBox(draft.providerOverride, (v) => { draft.providerOverride = v; }, "{\n  \"temperature\": 0.2\n}");
+}
+// the provider's <pid>/* as the box has it now: a pref to save, or why not
+function providerOverrideOfDraft(p) {
+  const now = (draft.providerOverride ?? "").trim(), was = overrideText(p?.override).trim();
+  if (now === was) return {};
+  if (!now) return { pref: { clearOverride: true } };
+  const v = overrideOf(now);
+  return v.error ? { error: v.error } : { pref: { override: v.value } };
+}
+// modelOverrideEditor: one model's, staged in draft.modelPrefs and made with
+// the provider editor's Save; the switch keeps it out of its provider's
+function modelOverrideEditor(p, id, prefs, redraw) {
+  const m = p.models.find((x) => x.id === id) || { id };
+  const ed = el("div", "editor");
+  ed.append(el("div", "ehead", el("b", "", t("Param override for {id}", { id }))));
+  ed.append(el("p", "hint", t("magpie adjusts this model's request bodies at the wire: after its own rewrites and before the request is signed. Top-level keys are set as they are, and \"operations\" runs in order. A field is deleted with a delete operation, e.g. {\"operations\":[{\"path\":\"temperature\",\"mode\":\"delete\"}]}.")));
+  if (m.overrideFrom === "provider") {
+    ed.append(el("p", "hint", t("Its provider has one for every model.") + " " + t("Leave the box empty to inherit it, or write one here for this model alone.")));
+  }
+  const box = overrideBox(prefs[id]?.override !== undefined ? overrideText(prefs[id].override) : overrideText(m.overrideFrom === "own" ? m.override : ""), () => {});
+  const ta = box.querySelector("textarea");
+  ta.placeholder = overrideText(p.override) || "{\n  \"temperature\": 0.2\n}";
+  ed.append(box);
+  const [offRow, offCb] = tick(t("Keep this model out of its provider's override"), prefs[id]?.overrideOff ?? !!m.overrideOff);
+  offCb.onchange = () => {
+    const x = prefs[id] = prefs[id] || {};
+    if (offCb.checked === !!m.overrideOff) delete x.overrideOff; else x.overrideOff = offCb.checked;
+    if (!Object.keys(x).length) delete prefs[id];
+    offRow.classList.toggle("off", offCb.checked);
+    ta.disabled = offCb.checked;
+  };
+  offRow.classList.toggle("off", offCb.checked);
+  ta.disabled = offCb.checked;
+  ed.append(offRow);
+  const bar = el("div", "bar");
+  const save = el("button", "text primary", t("Save"));
+  save.onclick = async (e) => {
+    e.stopPropagation();
+    const v = ta.value.trim(), x = prefs[id] = prefs[id] || {};
+    if (!v) {
+      // empty inherits its provider's, or none: its own is taken away
+      if (m.override) x.clearOverride = true; else delete x.clearOverride;
+      delete x.override;
+    } else {
+      const o = overrideOf(v);
+      if (o.error) { status(o.error, "warn"); return; }
+      delete x.clearOverride;
+      x.override = o.value;
+    }
+    if (!Object.keys(x).length) delete prefs[id];
+    await closeModal();
+    redraw?.();
+    status(t("{model}'s param override is made with the Save", { model: id }), "ok");
+  };
+  bar.append(el("span", "grow"), save);
+  ed.append(bar);
+  openModal(ed);
+  ta.focus();
+}
+
 // iconPicker: a custom provider's icon — one of the built-in ones, or a
 // picture of the user's own, which magpie keeps in ~/.config/magpie/icons.
 // A routing group's icon: its providers' icons stacked, the first on top,
@@ -9281,7 +9385,7 @@ function baseAPIOf(p) {
 
 // draftOf is a saved provider as its editor's form holds it.
 function draftOf(p) {
-  return { id: p.id, name: p.name, preset: p.preset, chat: p.chat, responses: p.responses, anthropic: p.anthropic, gemini: p.gemini || "", catalog: p.catalog, decide: p.decide || "", key: "", api: baseAPIOf(p), chosen: pickedOf(p), none: !!p.noModels, best: !!p.bestInFamily, extra: [], headers: headerRows(p.headers), extraBody: extraBodyText(p.extraBody), replyHeaders: (p.replyHeaders || []).join(", "), passHeaders: (p.passHeaders || []).join(", "), icon: p.icon || "", iconFrom: p.iconFrom || "", fallback: [...(p.fallback || [])], unlisted: !!p.unlisted, hiddenDrawers: [...(p.hiddenDrawers || [])], hiddenVideomakers: [...(p.hiddenVideomakers || [])], searches: !!p.searches, unredacted: !!p.unredacted, countFree: !!p.countFree, billing: p.billing || "", insecureTLS: !!p.insecureTLS, http1: !!p.http1, clientCert: p.clientCert || "", clientKey: p.clientKey || "", serverCA: p.serverCA || "", serverPin: p.serverPin || "", socket: p.socket || "", limitRestOff: !!p.limitRestOff, noBalanceProbe: !!p.noBalanceProbe, upstreamProviders: !!p.upstreamProviders, passErrors: !!p.passErrors, imageFilesOff: !!p.imageFilesOff, nativeCompaction: !!p.nativeCompaction, passUserAgent: p.passUserAgent !== false, pinUpstream: !!p.pinUpstream, authHeader: p.authHeader || "", balanceURL: p.balanceURL || "", balancePath: p.balancePath || "", balanceMethod: p.balanceMethod || "", modelsURL: p.modelsURL || "", listOff: !!p.listOff, contexts: contextsText(p.contexts), outputs: contextsText(p.outputs), compacts: contextsText(p.compacts), keysUrl: p.keysUrl || "", ...proxyDraft(p), ...concurrencyDraft(p), rateWindows: (p.rateWindows || []).map((w) => ({ ...w })) };
+  return { id: p.id, name: p.name, preset: p.preset, chat: p.chat, responses: p.responses, anthropic: p.anthropic, gemini: p.gemini || "", catalog: p.catalog, decide: p.decide || "", key: "", api: baseAPIOf(p), chosen: pickedOf(p), none: !!p.noModels, best: !!p.bestInFamily, extra: [], headers: headerRows(p.headers), extraBody: extraBodyText(p.extraBody), providerOverride: overrideText(p.override), replyHeaders: (p.replyHeaders || []).join(", "), passHeaders: (p.passHeaders || []).join(", "), icon: p.icon || "", iconFrom: p.iconFrom || "", fallback: [...(p.fallback || [])], unlisted: !!p.unlisted, hiddenDrawers: [...(p.hiddenDrawers || [])], hiddenVideomakers: [...(p.hiddenVideomakers || [])], searches: !!p.searches, unredacted: !!p.unredacted, countFree: !!p.countFree, billing: p.billing || "", insecureTLS: !!p.insecureTLS, http1: !!p.http1, clientCert: p.clientCert || "", clientKey: p.clientKey || "", serverCA: p.serverCA || "", serverPin: p.serverPin || "", socket: p.socket || "", limitRestOff: !!p.limitRestOff, noBalanceProbe: !!p.noBalanceProbe, upstreamProviders: !!p.upstreamProviders, passErrors: !!p.passErrors, imageFilesOff: !!p.imageFilesOff, nativeCompaction: !!p.nativeCompaction, passUserAgent: p.passUserAgent !== false, pinUpstream: !!p.pinUpstream, authHeader: p.authHeader || "", balanceURL: p.balanceURL || "", balancePath: p.balancePath || "", balanceMethod: p.balanceMethod || "", modelsURL: p.modelsURL || "", listOff: !!p.listOff, contexts: contextsText(p.contexts), outputs: contextsText(p.outputs), compacts: contextsText(p.compacts), keysUrl: p.keysUrl || "", ...proxyDraft(p), ...concurrencyDraft(p), rateWindows: (p.rateWindows || []).map((w) => ({ ...w })) };
 }
 
 // duplicateProvider opens the Add form on a copy of p, its key p's unless another is pasted (#268).
@@ -9836,6 +9940,7 @@ function drawEditor(p, presetID) {
   }
   // and JSON fields of the user's own for each request's body (#1604)
   advIn.append(...field(t("Extra body"), extraBodyEditor(), t("JSON fields added to the body of every request to the vendor. A field the request has already is kept; write \"!name\" to replace it. ${sessionId} is the conversation's id; ${threadId} is the thread's, where the agent names one (Codex), else the same.")));
+  advIn.append(...field(t("Param override"), providerOverrideBox(), t("JSON applied to every request to every model of this provider, at the wire and before it is signed. A model's own wins over it, and a model can be kept out of it from its chip's menu.")));
   // and headers of the vendor's reply passed on to the agent (#4145)
   const replyIn = input(draft.replyHeaders || "", "X-Trace-Id, X-Foo");
   replyIn.classList.add("reply-headers");
@@ -10280,6 +10385,12 @@ function drawEditor(p, presetID) {
     const xb = extraBodyOf(draft.extraBody);
     if (xb.error) { shown(ed.querySelector(".extra-body textarea"))?.focus(NO_SCROLL); return editorError(t("Extra body: {why}", { why: xb.error }), "warn"); }
     body.extraBody = xb.value;
+    const po = providerOverrideOfDraft(p);
+    if (po.error) { shown(ed.querySelector(".override-editor textarea"))?.focus(NO_SCROLL); return editorError(t("Param override: {why}", { why: po.error }), "warn"); }
+    // a model's, and the provider's own <pid>/*; a new provider takes them too
+    const mp = modelPrefsOfDraft();
+    if (po.pref) body.modelPrefs = { ...(mp || {}), "*": po.pref };
+    else if (mp) body.modelPrefs = mp;
     const rh = replyHeadersOf(draft.replyHeaders);
     if (rh.error) { shown(ed.querySelector(".reply-headers"))?.focus(NO_SCROLL); return editorError(t("Reply headers: {why}", { why: rh.error }), "warn"); }
     body.replyHeaders = rh.value;
@@ -11406,6 +11517,11 @@ function renderModels(p) {
         const k = kindNow(id);
         acts.push({ name: k ? t("Makes: {kind}…", { kind: t(KIND_NAMES[k]) }) : t("Makes: Auto…"), icon: "M2.5 4h11v8h-11zM6.5 6.25v3.5L9.5 8z", tip: t("Say this model makes images or videos, when the provider's model list doesn't"), run: () => pickKind(c, id) });
       }
+      // the model's param override: one JSON, the whole override
+      {
+        const has = !!(draft.modelPrefs?.[id]?.override || p.models.find((x) => x.id === id)?.override);
+        acts.push({ name: has ? t("Param override…") : t("Add a param override…"), icon: "M3 3h10v10H3zM5.5 6.5h5M5.5 9.5h3", tip: t("Adjust this model's requests at the wire with one JSON, before the body is signed"), run: () => modelOverrideEditor(p, id, draft.modelPrefs = draft.modelPrefs || {}, () => { if (editing === p.id) renderProviders(); }) });
+      }
       openRowMenu(c, acts, { x: e.clientX, y: e.clientY });
     };
     // the API it is asked on, when one is picked (or staged)
@@ -11421,6 +11537,9 @@ function renderModels(p) {
       tag.title = t("{kind}, as you said; right-click to change", { kind: t(KIND_NAMES[kind]) });
       c.append(tag);
     }
+    // its param override, if any
+    const mo = p.models.find((x) => x.id === id) || {};
+    if (mo.overrideFrom || mo.overrideOff) c.append(el("span", "badge moverride-tag", t(mo.overrideOff ? "no override" : "override")));
   };
   const box = el("div", "models");
   const chips = el("div", "mchips");
