@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -144,6 +145,11 @@ func seedPerModelTables(t *testing.T, s *settings.Settings) int {
 // entry in it, is told apart. A type with nothing said of it is left zero:
 // the key alone gives the table away.
 func perModelValue(typ reflect.Type, table string) reflect.Value {
+	// a json.RawMessage is a slice kind but must hold valid JSON for a save
+	// to marshal it, so it is seeded by its own name, not a made slice
+	if typ == reflect.TypeFor[json.RawMessage]() {
+		return reflect.ValueOf(json.RawMessage(`{"` + table + `":true}`))
+	}
 	switch typ.Kind() {
 	case reflect.String:
 		return reflect.ValueOf("said of " + table).Convert(typ)
